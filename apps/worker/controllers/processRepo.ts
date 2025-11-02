@@ -92,12 +92,12 @@ export const indexRepo = async (repourl: string) => {
             })
           );
         } catch {
-          console.warn(`⚠️ Skipping unreadable file: ${path}`);
+          console.warn(`Skipping unreadable file: ${path}`);
         }
       }
     } else {
       console.log(
-        `🔄 Incremental update from ${previousCommit} → ${latestCommit}`
+        `Incremental update from ${previousCommit} → ${latestCommit}`
       );
       const diffResult = await sandbox.commands.run(
         `cd ${cloneDir} && git diff --name-status ${previousCommit} ${latestCommit}`
@@ -201,4 +201,4 @@ function extractMeta(path: string, content: string) {
   return { path, functions, classes, imports };
 }
 
-await indexRepo("https://github.com/hemanth-1321/test");
+// await indexRepo("https://github.com/hemanth-1321/test");

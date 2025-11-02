@@ -31,13 +31,13 @@ export const indexRepo = async (repourl: string) => {
   });
 
   pool.on("error", (err) => {
-    console.error("💥 Postgres pool error:", err);
+    console.error(" Postgres pool error:", err);
   });
 
   try {
-    console.log("🧠 Testing PG connection...");
+    console.log("Testing PG connection...");
     const test = await pool.query("SELECT NOW()");
-    console.log("✅ DB connected at", test.rows[0].now);
+    console.log(" DB connected at", test.rows[0].now);
 
     // Ensure table exists
     await pool.query(`
@@ -67,7 +67,7 @@ export const indexRepo = async (repourl: string) => {
     const latestCommit = latestCommitResult.stdout.trim();
 
     if (previousCommit && latestCommit === previousCommit) {
-      console.log("✅ Repo already up to date, skipping reindex.");
+      console.log(" Repo already up to date, skipping reindex.");
       return;
     }
 
@@ -85,7 +85,7 @@ export const indexRepo = async (repourl: string) => {
     const summaries: any[] = [];
 
     if (!hasIndex) {
-      console.log("🚀 No previous index → full indexing...");
+      console.log(" No previous index → full indexing...");
       const filesOutput = await sandbox.commands.run(
         `find ${cloneDir} -type f`
       );
@@ -109,12 +109,12 @@ export const indexRepo = async (repourl: string) => {
             })
           );
         } catch {
-          console.warn(`⚠️ Skipping unreadable file: ${path}`);
+          console.warn(` Skipping unreadable file: ${path}`);
         }
       }
     } else {
       console.log(
-        `🔄 Incremental update from ${previousCommit} → ${latestCommit}`
+        `Incremental update from ${previousCommit} → ${latestCommit}`
       );
       const diffResult = await sandbox.commands.run(
         `cd ${cloneDir} && git diff --name-status ${previousCommit} ${latestCommit}`
@@ -151,14 +151,14 @@ export const indexRepo = async (repourl: string) => {
             })
           );
         } catch {
-          console.warn(`⚠️ Could not read changed file: ${file}`);
+          console.warn(`Could not read changed file: ${file}`);
         }
       }
     }
 
     if (docs.length > 0) {
       await vectorstore.addDocuments(docs);
-      console.log(`📚 Indexed ${docs.length} documents`);
+      console.log(`Indexed ${docs.length} documents`);
     }
 
     const encoded = encode(summaries);
@@ -172,18 +172,38 @@ export const indexRepo = async (repourl: string) => {
       [repoName, latestCommit, docs.length]
     );
 
-    console.log(`✅ Repo ${repoName} updated to commit ${latestCommit}`);
+    console.log(` Repo ${repoName} updated to commit ${latestCommit}`);
   } catch (err) {
-    console.error("💥 Error during indexing:", err);
+    console.error(" Error during indexing:", err);
   } finally {
-    try {
+    const shutdown = async () => {
       console.log("🧹 Cleaning up...");
-      await pool.end();
-      await sandbox.kill();
-      console.log("✅ Clean shutdown complete.");
-    } catch (err) {
-      console.error("💥 Error during cleanup:", err);
-    }
+
+      try {
+        await pool.end();
+        console.log("✅ PG pool closed");
+      } catch (err) {
+        console.error("⚠️ Error closing pool:", err);
+      }
+
+      try {
+        await sandbox.kill();
+        console.log("✅ Sandbox killed");
+      } catch (err) {
+        console.error("⚠️ Error killing sandbox:", err);
+      }
+    };
+
+    const timeout = new Promise((resolve) =>
+      setTimeout(() => {
+        console.log("⏱️ Forced exit (cleanup timeout)");
+        resolve("timeout");
+      }, 3000)
+    );
+
+    await Promise.race([shutdown(), timeout]);
+    console.log("✨ Exiting now...");
+    process.exit(0);
   }
 };
 

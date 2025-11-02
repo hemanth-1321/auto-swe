@@ -5,10 +5,13 @@ import { PGVectorStore } from "@langchain/community/vectorstores/pgvector";
 import pkg from "pg";
 import { encode } from "@byjohann/toon";
 import fs from "fs";
+import "dotenv/config";
 
 const { Pool } = pkg;
 
 export const indexRepo = async (repourl: string) => {
+  console.log("E2b", process.env.E2B_API_KEY);
+
   const baseDir = "/home/user/project";
   const repoName = repourl.split("/").pop()!.replace(".git", "");
   const cloneDir = `${baseDir}/${repoName}`;
@@ -20,10 +23,23 @@ export const indexRepo = async (repourl: string) => {
     apiKey: process.env.E2B_API_KEY,
     timeoutMs: 30 * 60 * 1000,
   });
-  const pool = new Pool({ connectionString: process.env.PG_URL });
+
+  const pool = new Pool({
+    connectionString: process.env.PG_URL,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  });
+
+  pool.on("error", (err) => {
+    console.error("💥 Postgres pool error:", err);
+  });
 
   try {
-    // Ensure table
+    console.log("🧠 Testing PG connection...");
+    const test = await pool.query("SELECT NOW()");
+    console.log("✅ DB connected at", test.rows[0].now);
+
+    // Ensure table exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS repo_index_state (
         repo_name TEXT PRIMARY KEY,
@@ -33,7 +49,7 @@ export const indexRepo = async (repourl: string) => {
       )
     `);
 
-    // Check if repo already indexed
+    // Fetch previous commit
     const { rows } = await pool.query(
       "SELECT last_commit FROM repo_index_state WHERE repo_name = $1",
       [repoName]
@@ -51,7 +67,7 @@ export const indexRepo = async (repourl: string) => {
     const latestCommit = latestCommitResult.stdout.trim();
 
     if (previousCommit && latestCommit === previousCommit) {
-      console.log("Repo already up to date, skipping reindex.");
+      console.log("✅ Repo already up to date, skipping reindex.");
       return;
     }
 
@@ -59,16 +75,17 @@ export const indexRepo = async (repourl: string) => {
       model: "sentence-transformers/all-MiniLM-L6-v2",
       apiKey: process.env.HF_TOKEN,
     });
+
     const vectorstore = await PGVectorStore.initialize(embeddings, {
       pool,
       tableName: "repo_vector",
     });
 
-    let docs: Document[] = [];
-    let summaries: any[] = [];
+    const docs: Document[] = [];
+    const summaries: any[] = [];
 
     if (!hasIndex) {
-      console.log("No previous index found → full indexing...");
+      console.log("🚀 No previous index → full indexing...");
       const filesOutput = await sandbox.commands.run(
         `find ${cloneDir} -type f`
       );
@@ -92,12 +109,12 @@ export const indexRepo = async (repourl: string) => {
             })
           );
         } catch {
-          console.warn(`Skipping unreadable file: ${path}`);
+          console.warn(`⚠️ Skipping unreadable file: ${path}`);
         }
       }
     } else {
       console.log(
-        `Incremental update from ${previousCommit} → ${latestCommit}`
+        `🔄 Incremental update from ${previousCommit} → ${latestCommit}`
       );
       const diffResult = await sandbox.commands.run(
         `cd ${cloneDir} && git diff --name-status ${previousCommit} ${latestCommit}`
@@ -134,14 +151,14 @@ export const indexRepo = async (repourl: string) => {
             })
           );
         } catch {
-          console.warn(`Could not read changed file: ${file}`);
+          console.warn(`⚠️ Could not read changed file: ${file}`);
         }
       }
     }
 
     if (docs.length > 0) {
       await vectorstore.addDocuments(docs);
-      console.log(`Indexed ${docs.length} documents`);
+      console.log(`📚 Indexed ${docs.length} documents`);
     }
 
     const encoded = encode(summaries);
@@ -155,13 +172,18 @@ export const indexRepo = async (repourl: string) => {
       [repoName, latestCommit, docs.length]
     );
 
-    console.log(`Repo ${repoName} updated to commit ${latestCommit}`);
+    console.log(`✅ Repo ${repoName} updated to commit ${latestCommit}`);
   } catch (err) {
-    console.error("Error during indexing:", err);
+    console.error("💥 Error during indexing:", err);
   } finally {
-    await sandbox.kill();
-    await pool.end();
-    process.exit(0);
+    try {
+      console.log("🧹 Cleaning up...");
+      await pool.end();
+      await sandbox.kill();
+      console.log("✅ Clean shutdown complete.");
+    } catch (err) {
+      console.error("💥 Error during cleanup:", err);
+    }
   }
 };
 
@@ -200,5 +222,3 @@ function extractMeta(path: string, content: string) {
   }
   return { path, functions, classes, imports };
 }
-
-// await indexRepo("https://github.com/hemanth-1321/test");

@@ -1,8 +1,10 @@
 import express from "express";
 import crypto from "crypto";
-import { queue } from "@repo/redis/client";
+import { Queue } from "bullmq";
 
+const redisUrl = "redis://localhost:6379";
 const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || "hemanth";
+const queue = new Queue("indexQueue", { connection: { url: redisUrl } });
 
 function verifySignature(payload: Buffer, signature: string): boolean {
   if (!signature) return false;
@@ -20,10 +22,9 @@ router.post("/github", async (req, res) => {
   const rawBody = (req as any).rawBody as Buffer;
 
   if (!verifySignature(rawBody, signature)) {
-    return res.status(403).json({
-      error: "invalid signature ",
-    });
+    return res.status(403).json({ error: "invalid signature" });
   }
+
   const repoName = body?.repository?.full_name || "unknown-repo";
   const repoUrl = body?.repository?.html_url || "unknown-url";
 
@@ -32,15 +33,16 @@ router.post("/github", async (req, res) => {
   if (event === "push" && body?.ref) {
     const ref = body.ref.replace("refs/heads/", "");
     if (ref === "main" || ref === "master") {
-      //todo put the diff to a queue
       console.log(
         `[Webhook] Changes detected on branch: ${ref} in ${repoName}`
       );
+
       await queue.add("index_repo", {
         repo: repoName,
         branch: ref,
         url: repoUrl,
       });
+
       return res.json({ status: "branch_updated", branch: ref });
     }
   }

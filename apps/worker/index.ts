@@ -1,11 +1,26 @@
 import "dotenv/config";
-
+import { Worker } from "bullmq";
 import { indexRepo } from "./controllers/processRepo";
-import { queryRepo } from "./controllers/queryDb";
 
-async function main() {
-  await indexRepo("https://github.com/hemanth-1321/a8m");
-  //   await queryRepo("add a telegram tool ", "hemanth-1321/test");
-}
+const redisUrl = "redis://localhost:6379";
 
-main();
+const processor = async (job: any) => {
+  console.log(" Received job:", job.data);
+  await indexRepo(job.data.url);
+  return {
+    success: true,
+    processedAt: new Date().toISOString(),
+  };
+};
+
+const worker = new Worker("indexQueue", processor, {
+  connection: { url: redisUrl },
+});
+
+worker.on("completed", (job) => {
+  console.log(` Job ${job.id} completed`);
+});
+
+worker.on("failed", (job, err) => {
+  console.error(`Job ${job?.id} failed:`, err);
+});

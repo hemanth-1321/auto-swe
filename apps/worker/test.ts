@@ -5,11 +5,12 @@ import { queryRepo } from "./workflows/toolNode";
 import { indexRepo } from "./controllers/indexRepo";
 (async () => {
   const result = await searchFiles({
-    prompt: "add a telegram tool ",
-    repoUrl: "https://github.com/hemanth-1321/a8m",
+    prompt: "change the sum function to subtraction",
+    repoUrl: "https://github.com/hemanth-1321/test",
   } as unknown as GraphState);
 
-  console.log("✅ Final Output:", result);
+  console.log("\n🎯 Done! Results returned to testSearch:");
+  console.dir(result, { depth: null });
 })();
 
 // async function main() {

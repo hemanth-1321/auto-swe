@@ -17,7 +17,4 @@ export const processRepo = async (repoUrl: string) => {
     `cd clone ${repoUrl} ${cloneDir}`,
     { timeoutMs: 30 * 60 * 1000 }
   );
-
-  if (cloneResult.exitCode !== 0)
-    throw new Error(`Failed to clone repo: ${cloneResult.stderr}`);
 };

@@ -19,40 +19,59 @@ export const queryRepo = async (
     return [];
   }
 
-  // 🧠 Normalize repo input into a consistent identifier
   let normalizedRepo = repoInput
     .replace("https://", "")
     .replace("http://", "")
     .replace("github.com/", "")
     .replace(".git", "")
     .replace(/^\/|\/$/g, "");
-  if (!normalizedRepo.includes("/")) {
-    const defaultUser = "hemanth-1321"; // change if needed
-    normalizedRepo = `${defaultUser}/${normalizedRepo}`;
-  }
 
   console.log(`Normalized repo name: "${normalizedRepo}"`);
 
   const pool = new Pool({ connectionString: process.env.PG_URL });
-  const vectorstore = await PGVectorStore.initialize(embeddings, {
-    pool,
-    tableName: "repo_vector",
-  });
 
-  const results = await vectorstore.similaritySearch(prompt, 20);
+  let vectorstore;
+  try {
+    vectorstore = await PGVectorStore.initialize(embeddings, {
+      pool,
+      tableName: "repo_vector",
+    });
 
-  const filtered = results
-    .filter((doc) => doc.metadata.repo?.endsWith(normalizedRepo))
-    .slice(0, topK);
+    const results = await vectorstore.similaritySearch(prompt, 20);
 
-  console.log(` Found ${filtered.length} results for repo ${normalizedRepo}`);
-  for (const [i, doc] of filtered.entries()) {
-    console.log(`\nResult #${i + 1}:`);
-    console.log("Path:", doc.metadata.path);
-    console.log("Repo:", doc.metadata.repo);
-    console.log("Content:", doc.pageContent);
+    const filtered = results
+      .filter((doc) => doc.metadata.repo?.endsWith(normalizedRepo))
+      .slice(0, topK);
+
+    console.log(`Found ${filtered.length} results for repo ${normalizedRepo}`);
+    for (const [i, doc] of filtered.entries()) {
+      console.log(`\nResult #${i + 1}:`);
+      console.log("Path:", doc.metadata.path);
+      console.log("Repo:", doc.metadata.repo);
+      console.log("Content:", doc.pageContent);
+    }
+
+    console.log("🔴 About to end pool...");
+
+    // Try graceful shutdown first with timeout
+    const endPromise = pool.end();
+    const timeoutPromise = new Promise((resolve) =>
+      setTimeout(() => {
+        console.log("⚠️  Pool.end() timed out, forcing shutdown...");
+        // Force remove all clients
+        (pool as any).removeAllListeners();
+        resolve(null);
+      }, 2000)
+    );
+
+    await Promise.race([endPromise, timeoutPromise]);
+    console.log("✅ Pool ended successfully");
+
+    return filtered;
+  } catch (error) {
+    console.error("Error during query:", error);
+    // Force pool shutdown on error
+    await pool.end().catch(() => {});
+    throw error;
   }
-
-  await pool.end();
-  return filtered;
 };

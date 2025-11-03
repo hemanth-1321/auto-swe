@@ -1,8 +1,12 @@
 {
-  "name": "server",
+  "name": "@repo/redis",
   "module": "index.ts",
   "type": "module",
   "private": true,
+
+  "exports":{
+    "./client": "./index.ts"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
@@ -10,8 +14,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@types/express": "^5.0.5",
-    "express": "^5.1.0",
-    "@repo/redis":"*"
+    "bullmq": "^5.63.0",
+    "redis": "^5.9.0"
   }
 }

@@ -1,5 +1,6 @@
-import express, { raw } from "express";
-import crypto, { sign } from "crypto";
+import express from "express";
+import crypto from "crypto";
+import { queue } from "@repo/redis/client";
 
 const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || "hemanth";
 
@@ -17,19 +18,29 @@ router.post("/github", async (req, res) => {
   const event = req.header("X-GitHub-Event") || "";
   const body = req.body;
   const rawBody = (req as any).rawBody as Buffer;
-  console.log("rawbody", rawBody);
 
   if (!verifySignature(rawBody, signature)) {
     return res.status(403).json({
       error: "invalid signature ",
     });
   }
+  const repoName = body?.repository?.full_name || "unknown-repo";
+  const repoUrl = body?.repository?.html_url || "unknown-url";
+
+  console.log(`[Webhook] Event: ${event} | Repo: ${repoName} (${repoUrl})`);
 
   if (event === "push" && body?.ref) {
     const ref = body.ref.replace("refs/heads/", "");
     if (ref === "main" || ref === "master") {
       //todo put the diff to a queue
-      console.log(`[Webhook] Changes detected on branch: ${ref}`);
+      console.log(
+        `[Webhook] Changes detected on branch: ${ref} in ${repoName}`
+      );
+      await queue.add("index_repo", {
+        repo: repoName,
+        branch: ref,
+        url: repoUrl,
+      });
       return res.json({ status: "branch_updated", branch: ref });
     }
   }

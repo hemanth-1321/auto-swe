@@ -4,6 +4,7 @@ import { Sandbox } from "@e2b/code-interpreter";
 export const GraphState = Annotation.Root({
   prompt: Annotation<string>(),
   repoUrl: Annotation<string>(),
+  repoPath: Annotation<string>(),
   filePaths: Annotation<string[]>(),
   fileContents: Annotation<Record<string, string>>(),
   relevantFiles:
@@ -24,6 +25,7 @@ export const GraphState = Annotation.Root({
   validationAttempts: Annotation<number>(),
   validationSuccess: Annotation<boolean>(),
   filesToModify: Annotation<Array<{ filePath: string; newContent: string }>>(),
+  stack: Annotation<string>(),
 });
 
 export type GraphState = typeof GraphState.State;

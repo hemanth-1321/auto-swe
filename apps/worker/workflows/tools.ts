@@ -5,7 +5,7 @@ import { queryRepo } from "./toolNode";
 export const queryRepoTool = tool(
   async ({ prompt, repoName, topK }) => {
     const result = await queryRepo(prompt, repoName, topK);
-    return JSON.stringify(result, null, 2); // 🧩 make tool output a string
+    return JSON.stringify(result, null, 2);
   },
   {
     name: "query_repo",

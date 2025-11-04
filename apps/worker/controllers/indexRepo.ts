@@ -194,9 +194,16 @@ export const indexRepo = async (repourl: string) => {
       }, 3000)
     );
 
-    await Promise.race([shutdown(), timeout]);
+    const result = await Promise.race([shutdown(), timeout]);
+
+    if (result !== "timeout") {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
     console.log("✨ Exiting now...");
-    process.exit(0);
+    if (process.env.WORKER_MODE !== "queue") {
+      process.exit(0);
+    }
   }
 };
 

@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { Worker } from "bullmq";
-import { indexRepo } from "./controllers/processRepo";
+import { indexRepo } from "./controllers/indexRepo";
 
 const redisUrl = "redis://localhost:6379";
 

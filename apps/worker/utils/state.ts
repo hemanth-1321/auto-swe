@@ -26,6 +26,7 @@ export const GraphState = Annotation.Root({
   validationSuccess: Annotation<boolean>(),
   filesToModify: Annotation<Array<{ filePath: string; newContent: string }>>(),
   stack: Annotation<string>(),
+  jobId: Annotation<string>(),
 });
 
 export type GraphState = typeof GraphState.State;

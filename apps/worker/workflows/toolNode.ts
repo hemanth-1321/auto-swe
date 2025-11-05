@@ -1,7 +1,6 @@
 import { HuggingFaceInferenceEmbeddings } from "@langchain/community/embeddings/hf";
 import { PGVectorStore } from "@langchain/community/vectorstores/pgvector";
-import { Pool } from "pg";
-
+import { pool } from "../utils/vectordb";
 export const queryRepo = async (
   prompt: string,
   repoInput: string,
@@ -27,8 +26,6 @@ export const queryRepo = async (
   }
 
   console.log(`Normalized repo name: "${normalizedRepo}"`);
-
-  const pool = new Pool({ connectionString: process.env.PG_URL });
 
   const vectorstore = await PGVectorStore.initialize(embeddings, {
     pool,

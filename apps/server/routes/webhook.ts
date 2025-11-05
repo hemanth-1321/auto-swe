@@ -1,8 +1,8 @@
 import express from "express";
 import crypto from "crypto";
+import { redisUrl } from "@repo/redis/client";
 import { Queue } from "bullmq";
 
-const redisUrl = "redis://localhost:6379";
 const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || "hemanth";
 const queue = new Queue("indexQueue", { connection: { url: redisUrl } });
 

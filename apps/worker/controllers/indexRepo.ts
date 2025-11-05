@@ -6,6 +6,7 @@ import pkg from "pg";
 import { encode } from "@byjohann/toon";
 import fs from "fs";
 import "dotenv/config";
+import { pool } from "../utils/vectordb";
 
 const { Pool } = pkg;
 
@@ -21,12 +22,6 @@ export const indexRepo = async (repourl: string) => {
   const sandbox = await Sandbox.create({
     apiKey: process.env.E2B_API_KEY,
     timeoutMs: 30 * 60 * 1000,
-  });
-
-  const pool = new Pool({
-    connectionString: process.env.PG_URL,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
   });
 
   pool.on("error", (err) => {

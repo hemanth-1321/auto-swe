@@ -33,10 +33,12 @@ async function main() {
   //   process.exit(0);
   // }
 
+  // await indexRepo("https://github.com/hemanth-1321/a8m");
   await processRepo(
-    "https://github.com/hemanth-1321/test",
-    "add a calculator feature",
-    92894229
+    "https://github.com/hemanth-1321/a8m",
+    "add a telegram tool",
+    92894229,
+    "1"
   );
 }
 main();

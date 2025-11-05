@@ -1,12 +1,17 @@
 import { queryRepo } from "./toolNode";
 import { GraphState } from "../utils/state";
 import { groqModel } from "../utils/llm";
+import { publishUpdate } from "@repo/redis/client";
 
 export const searchFiles = async (state: GraphState) => {
-  const { prompt, repoUrl } = state;
+  const { prompt, repoUrl, jobId } = state;
   if (!repoUrl) throw new Error("repoUrl missing in GraphState");
 
-  console.log(`Running queryRepo for ${repoUrl} with prompt: ${prompt}`);
+  console.log("Starting file search...");
+  await publishUpdate(jobId, {
+    stage: "searching",
+    message: `Searching repository for relevant files related to: "${prompt}"`,
+  });
 
   const result = await queryRepo(prompt, repoUrl, 10);
   const relevantFiles = result.results.map((r, idx) => ({
@@ -16,50 +21,71 @@ export const searchFiles = async (state: GraphState) => {
     relevance: Math.round(((10 - idx) / 10) * 100),
   }));
 
-  const newState = {
+  await publishUpdate(jobId, {
+    stage: "searchComplete",
+    message: `Found ${relevantFiles.length} relevant files.`,
+  });
+
+  return {
     ...state,
     relevantFiles,
     filePaths: relevantFiles.map((r) => r.file),
   };
-  console.log("new state", newState);
-
-  return newState;
 };
 
 export const readFiles = async (state: GraphState) => {
-  const { filePaths, sandbox } = state;
-  console.log("in the readiles", filePaths);
+  const { filePaths, sandbox, jobId } = state;
+  console.log("Starting file read...");
 
   if (!filePaths || filePaths.length === 0) {
-    throw new Error("file paths are empty");
+    throw new Error("No file paths available for reading.");
   }
 
-  console.log(`📖 Reading ${Math.min(filePaths.length, 10)} files...`);
+  await publishUpdate(jobId, {
+    stage: "reading",
+    message: `Reading up to ${Math.min(filePaths.length, 10)} files...`,
+  });
+
   const fileContents: Record<string, string> = {};
 
   for (const filePath of filePaths.slice(0, 10)) {
+    await publishUpdate(jobId, {
+      stage: "reading",
+      message: `Reading file: ${filePath}`,
+    });
+
     try {
       const content = await sandbox.files.read(filePath);
       fileContents[filePath] = content;
     } catch (err) {
-      console.error(`⚠️Failed to read ${filePath}:`, err);
+      await publishUpdate(jobId, {
+        stage: "readError",
+        message: `Failed to read file: ${filePath}`,
+      });
     }
   }
 
-  const newState = {
+  await publishUpdate(jobId, {
+    stage: "readComplete",
+    message: `Successfully read ${Object.keys(fileContents).length} files.`,
+  });
+
+  return {
     ...state,
     fileContents,
   };
-
-  return newState;
 };
 
 export const analyzeFilesAndPlan = async (
   state: GraphState
 ): Promise<Partial<GraphState>> => {
-  const { prompt, fileContents, sandbox, repoPath } = state;
+  const { prompt, fileContents, sandbox, repoPath, jobId } = state;
+  console.log("Analying files");
+  await publishUpdate(jobId, {
+    stage: "analyzing",
+    message: " Started analyzing repository structure...",
+  });
 
-  console.log("Analyzing repository structure...");
   const repoStructure = await sandbox.commands.run(
     `cd "${repoPath}" && find . -type f -not -path "./.git/*" | head -30`
   );
@@ -69,7 +95,6 @@ export const analyzeFilesAndPlan = async (
     .filter(Boolean)
     .map((f) => f.trim());
 
-  // --- Detect language and framework
   const hasReact = existingFiles.some(
     (f) => f.endsWith(".tsx") || f.endsWith(".jsx")
   );
@@ -84,7 +109,6 @@ export const analyzeFilesAndPlan = async (
     (f) => f.toLowerCase().includes("test") || f.toLowerCase().includes("spec")
   );
 
-  // --- Identify the stack
   const stack = hasReact
     ? "React/TypeScript"
     : hasVue
@@ -114,11 +138,12 @@ export const analyzeFilesAndPlan = async (
     fileCount: existingFiles.length,
   };
 
-  // === CASE 1: No files provided → need to create new files ===
+  // CASE 1 — No files: create new
   if (!fileContents || Object.keys(fileContents).length === 0) {
-    console.log(
-      "No specific files found, asking LLM to plan new file creation..."
-    );
+    await publishUpdate(jobId, {
+      stage: "planning",
+      message: " No files selected — planning new file creation...",
+    });
 
     const promptText = `
 User request: "${prompt}"
@@ -127,7 +152,7 @@ Repository context:
 ${JSON.stringify(repoContext, null, 2)}
 
 RULES:
-1. Match the detected language (Python → .py, Go → .go, etc.)
+1. Match detected language (Python → .py, Go → .go, etc.)
 2. Use 'src/' if it exists
 3. Create only minimal necessary files
 4. Avoid unrelated tests or config files
@@ -145,9 +170,13 @@ Return ONLY JSON like:
       const cleaned = response.content
         .toString()
         .trim()
-        .replace(/```json\n?/g, "")
-        .replace(/```\n?/g, "");
+        .replace(/```json\n?|```\n?/g, "");
       const parsed = JSON.parse(cleaned);
+
+      await publishUpdate(jobId, {
+        stage: "planComplete",
+        message: `Created change plan for ${parsed.length} new file(s).`,
+      });
 
       return {
         stack,
@@ -159,9 +188,11 @@ Return ONLY JSON like:
         })),
       };
     } catch (error) {
-      console.error("Error parsing LLM response for create plan:", error);
+      await publishUpdate(jobId, {
+        stage: "error",
+        message: "Failed to generate plan, using fallback file plan.",
+      });
 
-      // fallback: guess extension by stack
       const ext = hasPython
         ? "py"
         : hasGo
@@ -172,7 +203,6 @@ Return ONLY JSON like:
               ? "rs"
               : "ts";
       const fallback = hasSrc ? `src/new_feature.${ext}` : `new_feature.${ext}`;
-
       return {
         stack,
         relevantFiles: [],
@@ -187,7 +217,12 @@ Return ONLY JSON like:
     }
   }
 
-  // === CASE 2: Files provided → need to plan edits ===
+  // CASE 2 — Edit existing files
+  await publishUpdate(jobId, {
+    stage: "planning",
+    message: "Analyzing existing files to plan edits...",
+  });
+
   const contextText = Object.entries(fileContents)
     .map(([path, content]) => `File: ${path}\n${content.slice(0, 1500)}`)
     .join("\n\n---\n\n");
@@ -202,16 +237,14 @@ Relevant files (truncated content):
 ${contextText}
 
 RULES:
-1. Prefer editing existing files over creating new ones.
+1. Prefer editing existing files.
 2. Keep language and code style consistent.
 3. Make minimal changes to achieve the goal.
-4. Return only JSON in this format:
+4. Return only JSON like:
 [
   { "file": "src/main.ts", "reason": "...", "action": "edit", "goal": "..." }
 ]
 `;
-
-  console.log("Analyzing existing files to generate change plan...");
 
   try {
     const response = await groqModel.invoke([
@@ -220,9 +253,13 @@ RULES:
     const cleaned = response.content
       .toString()
       .trim()
-      .replace(/```json\n?/g, "")
-      .replace(/```\n?/g, "");
+      .replace(/```json\n?|```\n?/g, "");
     const parsed = JSON.parse(cleaned);
+
+    await publishUpdate(jobId, {
+      stage: "planComplete",
+      message: ` Generated change plan for ${parsed.length} file(s).`,
+    });
 
     return {
       stack,
@@ -236,7 +273,10 @@ RULES:
       })),
     };
   } catch (error) {
-    console.error("Error parsing LLM response for edit plan:", error);
+    await publishUpdate(jobId, {
+      stage: "error",
+      message: "Failed to analyze or parse change plan.",
+    });
     return {
       stack,
       relevantFiles: [],
@@ -249,57 +289,47 @@ RULES:
 export const applyChanges = async (
   state: GraphState
 ): Promise<Partial<GraphState>> => {
-  const { sandbox, repoPath, changePlan, fileContents, prompt } = state;
+  const { sandbox, repoPath, changePlan, fileContents, prompt, jobId } = state;
+  console.log("applying changes");
+  await publishUpdate(jobId, {
+    stage: "applying",
+    message: `Started applying ${changePlan.length} change(s)...`,
+  });
 
-  if (!changePlan || changePlan.length === 0) {
-    console.log("No change plan available");
-    return { error: "No change plan" };
-  }
-
-  console.log(`Applying changes to ${changePlan.length} files...`);
   const filesToModify: Array<{ filePath: string; newContent: string }> = [];
 
   try {
     for (const change of changePlan) {
-      console.log(`Processing: ${change.file} (${change.action})`);
       const normalizedFile = change.file.replace(/^\.\//, "");
       const targetPath = `${repoPath}/${normalizedFile}`;
 
+      await publishUpdate(jobId, {
+        stage: "processing",
+        message: `${change.action === "create" ? "🆕 Creating" : change.action === "edit" ? "✏️ Editing" : "🗑️ Deleting"} ${normalizedFile}`,
+        file: normalizedFile,
+        action: change.action,
+      });
+
       if (change.action === "create") {
         const dirPath = normalizedFile.split("/").slice(0, -1).join("/");
-        if (dirPath) {
+        if (dirPath)
           await sandbox.commands.run(`cd "${repoPath}" && mkdir -p ${dirPath}`);
-        }
 
         const completion = await groqModel.invoke(`
-        Generate a complete, production-ready file for: ${normalizedFile}
-
-        Goal: ${change.goal}
-        User request: ${prompt}
-
-        Requirements:
-        - Write complete, working, MINIMAL code
-        - Include proper imports and exports
-        - Add comments only where necessary
-        - Follow best practices for the file type
-        - Keep it simple - don't over-engineer
-        - Match the style of a ${
-          normalizedFile.endsWith(".ts")
-            ? "TypeScript"
-            : normalizedFile.endsWith(".tsx")
-              ? "React TypeScript"
-              : "JavaScript"
-        } project
-
-          Return ONLY the file content, no explanation or markdown code blocks.
+Generate a complete, production-ready file for: ${normalizedFile}
+Goal: ${change.goal}
+User request: ${prompt}
+Requirements:
+- Write complete, working, MINIMAL code
+- Include proper imports and exports
+- Follow best practices
+- No code blocks, just raw code
         `);
 
         const newContent = completion.content
           .toString()
           .trim()
-          .replace(/```[a-z]*\n?/g, "")
-          .replace(/```\n?/g, "");
-
+          .replace(/```[a-z]*\n?|```\n?/g, "");
         await sandbox.files.write(targetPath, newContent);
         filesToModify.push({ filePath: normalizedFile, newContent });
       } else if (change.action === "edit") {
@@ -310,36 +340,28 @@ export const applyChanges = async (
           try {
             existingContent = await sandbox.files.read(targetPath);
           } catch {
-            console.log(`Could not read ${normalizedFile}, skipping`);
+            await publishUpdate(jobId, {
+              stage: "warning",
+              message: `Could not read ${normalizedFile}, skipping.`,
+            });
             continue;
           }
         }
 
         const completion = await groqModel.invoke(`
 You are editing this file: ${normalizedFile}
-
-Current content:
-\`\`\`
-${existingContent}
-\`\`\`
-
 User request: ${prompt}
-Change goal: ${change.goal}
-
-Generate the COMPLETE modified file content that fulfills the user's request.
-- Keep existing code that doesn't need changes
-- Make the specific changes needed
-- Maintain proper formatting and style
-- Don't add unnecessary complexity
-
-Return ONLY the full file content, no explanation or markdown code blocks.
+Goal: ${change.goal}
+Current content:
+${existingContent}
+Generate the full modified content that fulfills the goal.
+No explanations, no markdown.
         `);
 
         const newContent = completion.content
           .toString()
           .trim()
-          .replace(/```[a-z]*\n?/g, "")
-          .replace(/```\n?/g, "");
+          .replace(/```[a-z]*\n?|```\n?/g, "");
 
         if (newContent !== existingContent && newContent.length > 10) {
           await sandbox.files.write(targetPath, newContent);
@@ -349,18 +371,26 @@ Return ONLY the full file content, no explanation or markdown code blocks.
         try {
           await sandbox.files.remove(targetPath);
         } catch {
-          console.log(`Could not delete ${normalizedFile}`);
+          await publishUpdate(jobId, {
+            stage: "warning",
+            message: `Failed to delete ${normalizedFile}`,
+          });
         }
       }
     }
 
-    console.log(`Total files modified: ${filesToModify.length}`);
-    return {
-      applyResult: { success: true },
-      filesToModify,
-    };
+    await publishUpdate(jobId, {
+      stage: "applyComplete",
+      message: `Successfully applied ${filesToModify.length} changes.`,
+    });
+
+    return { applyResult: { success: true }, filesToModify };
   } catch (e: any) {
-    console.error("Error applying changes:", e);
+    await publishUpdate(jobId, {
+      stage: "error",
+      message: ` Failed to apply changes: ${e.message}`,
+    });
+
     return {
       error: `Failed to apply changes: ${e.message}`,
       filesToModify,
@@ -377,12 +407,21 @@ export const validateChanges = async (
     validationAttempts = 0,
     filesToModify,
     stack,
+    jobId,
   } = state;
 
-  console.log(`Validating changes (attempt ${validationAttempts + 1})...`);
+  console.log("Starting validation...");
+  await publishUpdate(jobId, {
+    stage: "validation",
+    message: `Validating code changes (attempt ${validationAttempts + 1})...`,
+  });
 
   if (!filesToModify || filesToModify.length === 0) {
-    console.log("No files modified, skipping validation");
+    await publishUpdate(jobId, {
+      stage: "validationSkipped",
+      message: "No modified files found, skipping validation.",
+    });
+
     return {
       validationSuccess: true,
       validationAttempts: validationAttempts + 1,
@@ -393,61 +432,80 @@ export const validateChanges = async (
     let cmd = "";
     let success = true;
 
-    // 🟦 JavaScript / TypeScript
-    if (
-      stack?.includes("React") ||
-      stack?.includes("TypeScript") ||
-      stack === "Generic"
-    ) {
-      // Prefer lint if available
-      const check = await sandbox.commands.run(
-        `cd "${repoPath}" && test -f package.json && cat package.json | grep -q "lint" && echo "yes" || echo "no"`
-      );
-
-      if (check.stdout.trim() === "yes") {
-        cmd = `cd "${repoPath}" && npm run lint || true`;
-      } else {
-        // fallback: type check with tsc
-        cmd = `cd "${repoPath}" && npx tsc --noEmit || true`;
+    // Detect validator command based on stack
+    switch (true) {
+      case stack?.includes("React") ||
+        stack?.includes("TypeScript") ||
+        stack === "Generic": {
+        const check = await sandbox.commands.run(
+          `cd "${repoPath}" && test -f package.json && cat package.json | grep -q "lint" && echo "yes" || echo "no"`
+        );
+        if (check.stdout.trim() === "yes") {
+          cmd = `cd "${repoPath}" && npm run lint || true`;
+        } else {
+          cmd = `cd "${repoPath}" && npx tsc --noEmit || true`;
+        }
+        break;
       }
+
+      case stack === "Go":
+        cmd = `cd "${repoPath}" && go vet ./... && go build ./... || true`;
+        break;
+
+      case stack === "Java":
+        cmd = `cd "${repoPath}" && if [ -f pom.xml ]; then mvn -q validate; elif [ -f build.gradle ]; then gradle -q build; else javac $(find . -name "*.java"); fi || true`;
+        break;
+
+      case stack === "Rust":
+        cmd = `cd "${repoPath}" && cargo check || true`;
+        break;
+
+      case stack === "Python":
+        cmd = `cd "${repoPath}" && python -m py_compile $(find . -name "*.py") || true`;
+        break;
+
+      default:
+        cmd = "";
+        break;
     }
 
-    // 🟨 Go
-    else if (stack === "Go") {
-      cmd = `cd "${repoPath}" && go vet ./... && go build ./... || true`;
+    if (!cmd) {
+      await publishUpdate(jobId, {
+        stage: "validationSkipped",
+        message: "No suitable validator found for this stack.",
+      });
+
+      return {
+        validationSuccess: true,
+        validationAttempts: validationAttempts + 1,
+      };
     }
 
-    // 🟥 Java
-    else if (stack === "Java") {
-      // try Maven or Gradle build check
-      cmd = `cd "${repoPath}" && if [ -f pom.xml ]; then mvn -q validate; elif [ -f build.gradle ]; then gradle -q build; else javac $(find . -name "*.java"); fi || true`;
-    }
+    await publishUpdate(jobId, {
+      stage: "validationRunning",
+      message: `Running validation command: ${cmd}`,
+    });
 
-    // 🟧 Rust
-    else if (stack === "Rust") {
-      cmd = `cd "${repoPath}" && cargo check || true`;
-    }
+    const result = await sandbox.commands.run(cmd, { timeoutMs: 60000 });
+    success = result.exitCode === 0;
 
-    // 🟩 Python
-    else if (stack === "Python") {
-      cmd = `cd "${repoPath}" && python -m py_compile $(find . -name "*.py") || true`;
-    }
-
-    // Execute chosen validation command
-    if (cmd) {
-      console.log("Running validation command:", cmd);
-      const result = await sandbox.commands.run(cmd, { timeoutMs: 60000 });
-      success = result.exitCode === 0;
-    } else {
-      console.log("No suitable validator found, skipping.");
-    }
+    await publishUpdate(jobId, {
+      stage: success ? "validationSuccess" : "validationFailed",
+      message: success
+        ? "Validation completed successfully."
+        : "Validation failed. Please review the changes.",
+    });
 
     return {
       validationSuccess: success,
       validationAttempts: validationAttempts + 1,
     };
   } catch (error) {
-    console.error("Validation error:", error);
+    await publishUpdate(jobId, {
+      stage: "validationError",
+      message: `Validation process encountered an error: ${String(error)}`,
+    });
+
     return {
       validationSuccess: false,
       validationAttempts: validationAttempts + 1,

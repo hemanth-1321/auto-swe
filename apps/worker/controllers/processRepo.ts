@@ -2,128 +2,207 @@ import Sandbox from "@e2b/code-interpreter";
 import type { GraphState } from "../utils/state";
 import { codeEditorGraph } from "../workflows/graph";
 import { getInstallationAccessToken } from "@repo/github/github";
-import { groqModel } from "../utils/llm";
 import { generateCommitMessage } from "../utils/commitMessage";
 import { Octokit } from "@octokit/rest";
+import { publishUpdate } from "@repo/redis/client";
 
 export const processRepo = async (
   repoUrl: string,
   userPrompt: string,
-  installationId: number
+  installationId: number,
+  jobId: string
 ) => {
-  const baseDir = "/home/user/project";
-  const sandbox = await Sandbox.create({
-    apiKey: process.env.E2B_API_KEY,
-    timeoutMs: 30 * 60 * 1000,
-  });
+  try {
+    console.log("Starting repository processing...");
+    await publishUpdate(jobId, {
+      stage: "start",
+      message: "Starting repository processing...",
+    });
 
-  const repoName = repoUrl.split("/").pop()!.replace(".git", "");
-  const cloneDir = `${baseDir}/${repoName}`;
+    const baseDir = "/home/user/project";
+    const sandbox = await Sandbox.create({
+      apiKey: process.env.E2B_API_KEY,
+      timeoutMs: 30 * 60 * 1000,
+    });
 
-  await sandbox.commands.run(`rm -rf ${baseDir}`);
-  await sandbox.commands.run(`mkdir -p ${baseDir}`);
-  await sandbox.commands.run(`rm -rf "${baseDir}" && mkdir -p "${baseDir}"`);
-  const cloneResult = await sandbox.commands.run(
-    `git clone "${repoUrl}" "${cloneDir}"`,
-    { timeoutMs: 30 * 60 * 1000 }
-  );
+    const repoName = repoUrl.split("/").pop()!.replace(".git", "");
+    const cloneDir = `${baseDir}/${repoName}`;
 
-  if (cloneResult.exitCode !== 0)
-    throw new Error(`Failed to clone repo: ${cloneResult.stderr}`);
-  const initialState: GraphState = {
-    prompt: userPrompt,
-    repoPath: cloneDir,
-    repoUrl: repoUrl,
-    sandbox,
-    filePaths: [],
-    fileContents: {},
-    relevantFiles: [],
-    changePlan: [],
-    diff: "",
-    applyResult: null,
-    summary: "",
-    error: "",
-    attempts: 0,
-    validationAttempts: 0,
-    validationSuccess: false,
-    filesToModify: [],
-    stack: "",
-  };
+    await publishUpdate(jobId, {
+      stage: "init",
+      message: "Preparing sandbox environment...",
+    });
+    await sandbox.commands.run(`rm -rf ${baseDir}`);
+    await sandbox.commands.run(`mkdir -p ${baseDir}`);
 
-  console.log("starting graph execution");
+    // Clone repository
+    await publishUpdate(jobId, {
+      stage: "clone",
+      message: "Cloning repository...",
+    });
+    const cloneResult = await sandbox.commands.run(
+      `git clone "${repoUrl}" "${cloneDir}"`,
+      { timeoutMs: 30 * 60 * 1000 }
+    );
 
-  const graphResult = await codeEditorGraph.invoke(initialState);
-  console.log("Graph result keys:", Object.keys(graphResult));
-  const aiResult = Array.isArray(graphResult.filesToModify)
-    ? graphResult.filesToModify
-    : (graphResult.filesToModify as any)?.value || [];
+    if (cloneResult.exitCode !== 0) {
+      await publishUpdate(jobId, {
+        stage: "error",
+        message: `Failed to clone repository: ${cloneResult.stderr}`,
+      });
+      throw new Error(`Failed to clone repo: ${cloneResult.stderr}`);
+    }
 
-  const isValid =
-    typeof graphResult.validationSuccess === "boolean"
-      ? graphResult.validationSuccess
-      : ((graphResult.validationSuccess as any)?.value ?? true);
+    await publishUpdate(jobId, {
+      stage: "analysis",
+      message: "Analyzing repository and planning changes...",
+    });
 
-  console.log(`Files to modify: ${aiResult.length}`);
-  console.log(`Validation status: ${isValid}`);
+    const initialState: GraphState = {
+      prompt: userPrompt,
+      repoPath: cloneDir,
+      repoUrl,
+      jobId,
+      sandbox,
+      filePaths: [],
+      fileContents: {},
+      relevantFiles: [],
+      changePlan: [],
+      diff: "",
+      applyResult: null,
+      summary: "",
+      error: "",
+      attempts: 0,
+      validationAttempts: 0,
+      validationSuccess: false,
+      filesToModify: [],
+      stack: "",
+    };
 
-  if (graphResult.error) {
-    console.log("Graph execution error:", graphResult.error);
-    return { sandbox, cloneDir };
-  }
+    const graphResult = await codeEditorGraph.invoke(initialState);
+    await publishUpdate(jobId, {
+      stage: "analysis_done",
+      message: "Analysis and code generation completed.",
+    });
 
-  const status = await sandbox.commands.run(
-    `cd ${cloneDir} && git status --porcelain`
-  );
+    if (graphResult.error) {
+      await publishUpdate(jobId, {
+        stage: "error",
+        message: `Analysis failed: ${graphResult.error}`,
+      });
+      console.error("Graph execution error:", graphResult.error);
+      return { sandbox, cloneDir };
+    }
 
-  if (!status.stdout.trim()) {
-    console.log("No changes detected, skipping commit.");
+    const isValid = Boolean(graphResult.validationSuccess);
+    await publishUpdate(jobId, {
+      stage: "validation",
+      message: isValid
+        ? "Code validation succeeded."
+        : "Code validation failed.",
+    });
+
+    const status = await sandbox.commands.run(
+      `cd ${cloneDir} && git status --porcelain`
+    );
+
+    if (!status.stdout.trim()) {
+      await publishUpdate(jobId, {
+        stage: "no_changes",
+        message: "No changes detected, skipping commit.",
+      });
+      return;
+    }
+
+    await publishUpdate(jobId, {
+      stage: "commit",
+      message: "Committing AI-suggested changes...",
+    });
+    await sandbox.commands.run(
+      `git config --global user.email "autoswe-bot@users.noreply.github.com"`
+    );
+    await sandbox.commands.run(`git config --global user.name "AutoSWE Bot"`);
+
+    const commitMessage = await generateCommitMessage(userPrompt);
+    await sandbox.commands.run(`cd ${cloneDir} && git add -A`);
+    await sandbox.commands.run(
+      `cd ${cloneDir} && git commit -m "${commitMessage}"`
+    );
+
+    // Push changes to GitHub
+    await publishUpdate(jobId, {
+      stage: "push",
+      message: "Pushing committed changes to GitHub...",
+    });
+
+    const token = await getInstallationAccessToken(installationId);
+    const pushUrl = repoUrl.replace(
+      "https://",
+      `https://x-access-token:${token}@`
+    );
+    const branchName = `autoswe-edits-${Date.now()}`;
+
+    await sandbox.commands.run(
+      `cd ${cloneDir} && git checkout -b ${branchName}`
+    );
+    const pushResult = await sandbox.commands.run(
+      `cd ${cloneDir} && git push ${pushUrl} HEAD:${branchName}`
+    );
+
+    if (pushResult.exitCode !== 0) {
+      await publishUpdate(jobId, {
+        stage: "error",
+        message: `Failed to push changes: ${pushResult.stderr}`,
+      });
+      console.error("Push failed:", pushResult.stderr);
+      return;
+    }
+
+    // Create Pull Request
+    await publishUpdate(jobId, {
+      stage: "pr",
+      message: "Creating pull request on GitHub...",
+    });
+
+    const octokit = new Octokit({ auth: token });
+    const match = repoUrl.match(/github\.com\/([^/]+)\/([^/.]+)/);
+
+    if (!match || !match[1] || !match[2]) {
+      await publishUpdate(jobId, {
+        stage: "error",
+        message: "Invalid GitHub repository URL.",
+      });
+      throw new Error(`Invalid GitHub repo URL: ${repoUrl}`);
+    }
+
+    const [_, owner, repo] = match;
+    const { data: pr } = await octokit.pulls.create({
+      owner,
+      repo,
+      head: branchName,
+      base: "main",
+      title: `AI edits: ${userPrompt}`,
+      body: `This pull request contains AI-suggested changes:\n\n${userPrompt}`,
+    });
+
+    await publishUpdate(jobId, {
+      stage: "complete",
+      message: "Pull request created successfully.",
+      prUrl: pr.html_url,
+    });
+
+    console.log("Pull request created:", pr.html_url);
+  } catch (err: any) {
+    console.error("processRepo failed:", err);
+    await publishUpdate(jobId, {
+      stage: "error",
+      message: err.message || "Unknown error occurred during processing.",
+    });
+  } finally {
+    await publishUpdate(jobId, {
+      stage: "end",
+      message: "Repository processing job finished.",
+    });
     return;
   }
-
-  console.log("changes detected,preparing commit ...");
-
-  await sandbox.commands.run(
-    `git config --global user.email "autoswe-bot@users.noreply.github.com"`
-  );
-  await sandbox.commands.run(`git config --global user.name "AutoSWE Bot"`);
-  const commitMessage = await generateCommitMessage(userPrompt);
-  await sandbox.commands.run(`cd ${cloneDir} && git add -A`);
-  await sandbox.commands.run(
-    `cd ${cloneDir} && git commit -m "${commitMessage}"`
-  );
-
-  const token = await getInstallationAccessToken(installationId);
-  const pushUrl = repoUrl.replace(
-    "https://",
-    `https://x-access-token:${token}@`
-  );
-  const branchName = `autoswe-edits-${Date.now()}`;
-  await sandbox.commands.run(`cd ${cloneDir} && git checkout -b ${branchName}`);
-  const pushResult = await sandbox.commands.run(
-    `cd ${cloneDir} && git push ${pushUrl} HEAD:${branchName}`
-  );
-  if (pushResult.exitCode !== 0) {
-    console.error("Push failed:", pushResult.stderr);
-    return;
-  }
-
-  console.log("Pushed successfully. Creating PR...");
-
-  const octokit = new Octokit({ auth: token });
-  const match = repoUrl.match(/github\.com\/([^/]+)\/([^/.]+)/);
-  if (!match || !match[1] || !match[2]) {
-    throw new Error(`Invalid GitHub repo URL: ${repoUrl}`);
-  }
-  const owner = match[1];
-  const repo = match[2];
-  const { data: pr } = await octokit.pulls.create({
-    owner,
-    repo,
-    head: branchName,
-    base: "main",
-    title: `AI edits: ${userPrompt}`,
-    body: `This PR contains AI-suggested changes:\n\n${userPrompt}`,
-  });
-
-  console.log("Pull request created:", pr.html_url);
 };

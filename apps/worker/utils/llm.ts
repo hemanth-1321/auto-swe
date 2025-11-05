@@ -7,7 +7,7 @@ export const groqModel = new ChatGroq({
   apiKey: process.env.GROQ_API_KEY!,
 });
 
-export const openaiModel = new ChatOpenAI({
-  model: "gpt-5-mini",
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+// export const groqModel = new ChatOpenAI({
+//   model: "gpt-5-mini",
+//   apiKey: process.env.OPENAI_API_KEY!,
+// });

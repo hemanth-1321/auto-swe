@@ -18,7 +18,8 @@ workflow
   .addEdge(START, "searchFile")
   .addEdge("searchFile", "readFiles")
   .addEdge("readFiles", "analyze_files")
-  .addEdge("analyze_files", "apply_changes");
-// .addEdge("apply_changes", "validate_changes");
+  .addEdge("analyze_files", "apply_changes")
+  .addEdge("apply_changes", "validate_changes")
+  .addEdge("validate_changes", END);
 
 export const codeEditorGraph = workflow.compile();

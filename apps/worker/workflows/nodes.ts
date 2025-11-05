@@ -272,18 +272,18 @@ export const applyChanges = async (
         }
 
         const completion = await groqModel.invoke(`
-Generate a complete, production-ready file for: ${normalizedFile}
+        Generate a complete, production-ready file for: ${normalizedFile}
 
-Goal: ${change.goal}
-User request: ${prompt}
+        Goal: ${change.goal}
+        User request: ${prompt}
 
-Requirements:
-- Write complete, working, MINIMAL code
-- Include proper imports and exports
-- Add comments only where necessary
-- Follow best practices for the file type
-- Keep it simple - don't over-engineer
-- Match the style of a ${
+        Requirements:
+        - Write complete, working, MINIMAL code
+        - Include proper imports and exports
+        - Add comments only where necessary
+        - Follow best practices for the file type
+        - Keep it simple - don't over-engineer
+        - Match the style of a ${
           normalizedFile.endsWith(".ts")
             ? "TypeScript"
             : normalizedFile.endsWith(".tsx")
@@ -291,7 +291,7 @@ Requirements:
               : "JavaScript"
         } project
 
-Return ONLY the file content, no explanation or markdown code blocks.
+          Return ONLY the file content, no explanation or markdown code blocks.
         `);
 
         const newContent = completion.content

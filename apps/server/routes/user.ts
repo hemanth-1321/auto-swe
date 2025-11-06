@@ -1,7 +1,10 @@
 import express from "express";
 import { prisma } from "@repo/db/prisma";
+import jwt from "jsonwebtoken";
 import { getUserFromInstallation } from "@repo/github/github";
+import { authMiddleware } from "../middleware/middleware";
 const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET!;
 
 router.post("/create", async (req, res) => {
   const { installationId } = req.body;
@@ -17,14 +20,13 @@ router.post("/create", async (req, res) => {
       create: { username, installationId, avatarUrl },
     });
 
-    res.cookie("githubId", username, {
-      httpOnly: true,
-      sameSite: "none",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    const token = jwt.sign(
+      { username: user.username, id: user.id },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
-    res.status(200).json({ user });
+    res.status(200).json({ user, token });
   } catch (error) {
     console.error("Prisma error:", error);
     res.status(500).json({
@@ -34,22 +36,26 @@ router.post("/create", async (req, res) => {
   }
 });
 
-router.get("/get/user", async (req, res) => {
-  const { username } = req.cookies.githubId;
+router.get("/get/user", authMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  const { username } = req.user;
+
   try {
     const user = await prisma.user.findUnique({
-      where: {
-        username,
-      },
+      where: { username },
     });
-    res.status(200).json({
-      user,
-    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({ user });
   } catch (error) {
-    res.status(500).json({
-      message: "cannot get the user",
-    });
-    console.log(error);
+    console.error(error);
+    res.status(500).json({ message: "Cannot get the user" });
   }
 });
 

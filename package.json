@@ -7,8 +7,8 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
-    "worker":"bun run --watch apps/worker/index.ts",
-    "server":"bun run --watch apps/server/index.ts"
+    "worker": "bun run --watch apps/worker/index.ts",
+    "server": "bun run --watch apps/server/index.ts"
   },
   "devDependencies": {
     "prettier": "^3.6.2",
@@ -26,9 +26,11 @@
   "dependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.5",
+    "@types/jsonwebtoken": "^9.0.10",
     "axios": "^1.13.1",
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
     "octokit": "^5.0.5",
     "zod": "^4.1.12"
   }

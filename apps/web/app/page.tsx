@@ -1,9 +1,18 @@
 "use client";
+
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Github } from "lucide-react";
+import { Chat } from "@/components/Chat";
 
 export default function Home() {
+  const [token, setToken] = useState<string | null>(null);
   const GITHUB_APP_NAME = "auto-swe";
+
+  useEffect(() => {
+    const storedToken = localStorage.getItem("token");
+    setToken(storedToken);
+  }, []);
 
   const handleInstall = () => {
     window.open(
@@ -14,10 +23,14 @@ export default function Home() {
 
   return (
     <div className="flex justify-center items-center h-screen">
-      <Button className="cursor-pointer" onClick={handleInstall}>
-        <Github />
-        Sign in with GitHub
-      </Button>
+      {!token ? (
+        <Button className="cursor-pointer" onClick={handleInstall}>
+          <Github className="mr-2" />
+          Sign in with GitHub
+        </Button>
+      ) : (
+        <Chat />
+      )}
     </div>
   );
 }

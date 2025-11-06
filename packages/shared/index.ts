@@ -67,3 +67,27 @@ export const get_repo_by_name = async (
     throw error;
   }
 };
+
+export const getUserFromInstallation = async (installationId: number) => {
+  try {
+    const { data: installation } = await app.octokit.request(
+      "GET /app/installations/{installation_id}",
+      {
+        installation_id: installationId,
+      }
+    );
+    const account = installation.account;
+
+    return {
+      githubId: account?.id,
+      name: account?.login,
+      avatarUrl: account?.avatar_url,
+    };
+  } catch (error: any) {
+    console.error(
+      `Error fetching user for installation ${installationId}:`,
+      error
+    );
+    throw error;
+  }
+};

@@ -5,7 +5,6 @@ import { processRepo } from "./controllers/processRepo";
 
 const connection = { url: redisUrl };
 
-// --- Worker for indexing ---
 const workerIndex = new Worker(
   "indexQueue",
   async (job) => {
@@ -15,7 +14,7 @@ const workerIndex = new Worker(
   },
   {
     connection,
-    stalledInterval: 30000, // ✅ must be > 0 (e.g. 30 seconds)
+    stalledInterval: 30000,
   }
 );
 
@@ -26,7 +25,6 @@ workerIndex.on("failed", (job, err) => {
   console.error(`Index job ${job?.id} failed:`, err);
 });
 
-// --- Worker for processing repos ---
 const workerProcessRepo = new Worker(
   "processRepo",
   async (job) => {
@@ -42,7 +40,7 @@ const workerProcessRepo = new Worker(
   },
   {
     connection,
-    stalledInterval: 30000, // ✅ add here too
+    stalledInterval: 30000,
   }
 );
 

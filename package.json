@@ -7,7 +7,8 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
-    "worker":"bun run --watch apps/worker/index.ts"
+    "worker":"bun run --watch apps/worker/index.ts",
+    "server":"bun run --watch apps/server/index.ts"
   },
   "devDependencies": {
     "prettier": "^3.6.2",

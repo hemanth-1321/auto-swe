@@ -1,10 +1,15 @@
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
+
 import webhookRoute from "./routes/webhook";
 import publishUpdates from "./routes/publishUpdates";
 import processRepo from "./routes/processRepo";
+import UserRoute from "./routes/user";
 const app = express();
 app.use(cors());
+app.use(express.json());
+app.use(cookieParser());
 app.use(
   express.json({
     verify: (req: any, res, buf) => {
@@ -19,6 +24,8 @@ app.get("/", (req, res) => {
 app.use("/webhook", webhookRoute);
 app.use("/publish", publishUpdates);
 app.use("/process", processRepo);
+
+app.use("/user", UserRoute);
 app.listen(8000, () => {
   console.log("server is up at port 8000");
 });

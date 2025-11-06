@@ -19,7 +19,6 @@
     "@langchain/langgraph": "^1.0.1",
     "@langchain/openai": "^1.0.0",
     "@octokit/rest": "^22.0.0",
-    "@repo/db": "*",
     "@repo/github": "*",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/pg": "^8.15.6",

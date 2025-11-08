@@ -21,16 +21,23 @@ export default function Home() {
     );
   };
 
-  return (
-    <div className="flex justify-center items-center h-screen">
-      {!token ? (
-        <Button className="cursor-pointer" onClick={handleInstall}>
-          <Github className="mr-2" />
+  if (!token) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <Button
+          className="cursor-pointer text-lg px-6 py-3"
+          onClick={handleInstall}
+        >
+          <Github className="mr-2 h-5 w-5" />
           Sign in with GitHub
         </Button>
-      ) : (
-        <Chat />
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen">
+      <Chat />
     </div>
   );
 }

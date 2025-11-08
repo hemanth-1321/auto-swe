@@ -1,12 +1,15 @@
 import { Textarea } from "@/components/ui/textarea";
+import { Button } from "./ui/button";
+import { Card } from "./ui/card";
 
 export const Chat = () => {
   return (
-    <div className="w-full max-w-md mx-auto mt-10">
-      <Textarea
-        id="chat"
-        placeholder="Type your message here..."
-        className="
+    <div className="w-full max-w-3xl mx-auto mt-30">
+      <Card className="p-6 space-y-4">
+        <div>card</div>
+        <Textarea
+          placeholder="Type your message here..."
+          className="
           w-full
           min-h-[120px]
           p-4
@@ -19,24 +22,22 @@ export const Chat = () => {
           duration-200
           hover:shadow-md
           "
-      />
-      <button
-        className="
+        />
+        <Button
+          className="
           mt-3
           w-full
-          bg-blue-500
-          text-white
           font-semibold
           py-2
           rounded-xl
           shadow
-          hover:bg-blue-600
           transition
           duration-200
         "
-      >
-        Send
-      </button>
+        >
+          Send
+        </Button>
+      </Card>
     </div>
   );
 };

@@ -35,7 +35,6 @@ export const processRepo = async (
     await sandbox.commands.run(`rm -rf ${baseDir}`);
     await sandbox.commands.run(`mkdir -p ${baseDir}`);
 
-    // Clone repository
     await publishUpdate(jobId, {
       stage: "clone",
       message: "Cloning repository...",
@@ -158,7 +157,6 @@ export const processRepo = async (
       return;
     }
 
-    // Create Pull Request
     await publishUpdate(jobId, {
       stage: "pr",
       message: "Creating pull request on GitHub...",

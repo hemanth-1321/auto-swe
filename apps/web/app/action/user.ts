@@ -20,7 +20,7 @@ export const auth = async (installationId: number) => {
 
 export const getUser = async () => {
   try {
-    const TOKEN = localStorage.getItem("token"); // move it here
+    const TOKEN = localStorage.getItem("token");
     if (!TOKEN) throw new Error("No token found");
 
     const response = await axios.get(`${BACKEND_URL}/user/get/user`, {

@@ -39,41 +39,45 @@ export function AppBar() {
     <div className="bg-black">
       <header className="fixed top-0 z-50 w-full p-2 h-[72px]">
         <div className="h-full mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 rounded-2xl bg-background border border-neutral-200 dark:border-neutral-700 flex items-center justify-between">
+          {/* Logo */}
           <Link href="/" className="flex items-center space-x-2">
             <span className="font-bold font-mono text-xl">Auto-Swe</span>
           </Link>
 
-          <ThemeToggle />
+          {/* Right side: theme toggle + profile */}
+          <div className="flex items-center gap-4">
+            <ThemeToggle />
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <div className="cursor-pointer">
-                <Avatar className="w-10 h-10">
-                  <AvatarImage src={user.avatarUrl || undefined} />
-                  <AvatarFallback>{user.username[0]}</AvatarFallback>
-                </Avatar>
-              </div>
-            </DropdownMenuTrigger>
-
-            <DropdownMenuContent
-              className="w-56"
-              align="end"
-              sideOffset={0}
-              style={{ transition: "none" }}
-            >
-              <DropdownMenuLabel>
-                <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <div className="cursor-pointer">
                   <Avatar className="w-10 h-10">
                     <AvatarImage src={user.avatarUrl || undefined} />
                     <AvatarFallback>{user.username[0]}</AvatarFallback>
                   </Avatar>
-                  <div>
-                    <p className="font-bold">{user.username}</p>
-                  </div>
                 </div>
-              </DropdownMenuLabel>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent
+                className="w-56"
+                align="end"
+                sideOffset={0}
+                style={{ transition: "none" }}
+              >
+                <DropdownMenuLabel>
+                  <div className="flex items-center gap-2">
+                    <Avatar className="w-10 h-10">
+                      <AvatarImage src={user.avatarUrl || undefined} />
+                      <AvatarFallback>{user.username[0]}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-bold">{user.username}</p>
+                    </div>
+                  </div>
+                </DropdownMenuLabel>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </header>
     </div>

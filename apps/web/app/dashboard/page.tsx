@@ -1,47 +1,51 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useEffect, Suspense } from "react";
 import { auth } from "../action/user";
-const Page = () => {
+
+function DashboardContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const installationId = searchParams.get("installation_id");
 
-  const [username, setUsername] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
   useEffect(() => {
-    if (!installationId) return;
+    if (!installationId) {
+      router.replace("/");
+      return;
+    }
 
     const loginUser = async () => {
       try {
-        setLoading(true);
         const user = await auth(Number(installationId));
-
-        setUsername(user.username);
-        alert(`Logged in as ${user.username}`);
+        console.log("Authenticated as:", user.username);
+        router.replace("/");
       } catch (err) {
         console.error(err);
-        alert("Failed to authenticate user");
-      } finally {
-        setLoading(false);
+        router.replace("/");
       }
     };
 
     loginUser();
-  }, [installationId]);
+  }, [installationId, router]);
 
   return (
-    <div className="flex flex-col justify-center items-center h-screen">
-      {loading ? (
-        <div>Loading...</div>
-      ) : username ? (
-        <div>Welcome, {username}!</div>
-      ) : (
-        <div>No installation ID found in URL</div>
-      )}
+    <div className="flex justify-center items-center h-screen">
+      Logging in...
     </div>
   );
-};
+}
 
-export default Page;
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center items-center h-screen">
+          Loading...
+        </div>
+      }
+    >
+      <DashboardContent />
+    </Suspense>
+  );
+}

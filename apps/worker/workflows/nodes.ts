@@ -13,7 +13,7 @@ export const searchFiles = async (state: GraphState) => {
     message: `Searching repository for relevant files related to: "${prompt}"`,
   });
 
-  const result = await queryRepo(prompt, repoUrl, 10);
+  const result = await queryRepo(jobId, prompt, repoUrl, 10);
   const relevantFiles = result.results.map((r, idx) => ({
     file: r.path,
     content: r.content,
@@ -154,9 +154,9 @@ ${JSON.stringify(repoContext, null, 2)}
 RULES:
 1. Match detected language (Python → .py, Go → .go, etc.)
 2. Use 'src/' if it exists
-3. Create only minimal necessary files
+3. Create only if creatig a new file is necessary 
 4. Avoid unrelated tests or config files
-
+5. act accordigly and make the chnages provided in the ${prompt} ,firsly enhance the prompt
 Return ONLY JSON like:
 [
   { "file": "src/new_file.ext", "reason": "...", "action": "create", "goal": "..." }

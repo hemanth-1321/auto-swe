@@ -2,15 +2,12 @@ import { Sandbox } from "@e2b/code-interpreter";
 import { Document } from "@langchain/core/documents";
 import { HuggingFaceInferenceEmbeddings } from "@langchain/community/embeddings/hf";
 import { PGVectorStore } from "@langchain/community/vectorstores/pgvector";
-import pkg from "pg";
 import { encode } from "@byjohann/toon";
-import fs from "fs";
 import "dotenv/config";
 import { pool } from "../utils/vectordb";
+import { publishUpdate } from "@repo/redis/client";
 
-const { Pool } = pkg;
-
-export const indexRepo = async (repourl: string) => {
+export const indexRepo = async (repourl: string, jobId: string) => {
   const baseDir = "/home/user/project";
   const repoName = repourl.split("/").pop()!.replace(".git", "");
 
@@ -18,6 +15,11 @@ export const indexRepo = async (repourl: string) => {
   const repoFullName = repourl
     .replace("https://github.com/", "")
     .replace(".git", "");
+
+  await publishUpdate(jobId, {
+    stage: "init",
+    message: "Preparing sandbox environment...",
+  });
 
   const sandbox = await Sandbox.create({
     apiKey: process.env.E2B_API_KEY,
@@ -29,6 +31,11 @@ export const indexRepo = async (repourl: string) => {
   });
 
   try {
+    await publishUpdate(jobId, {
+      stage: "setup",
+      message: "Setting up database tables...",
+    });
+
     await pool.query(
       ` CREATE TABLE IF NOT EXISTS repo_index_state (
         repo_name TEXT PRIMARY KEY,
@@ -46,17 +53,32 @@ export const indexRepo = async (repourl: string) => {
     const hasIndex = rows.length > 0;
     let previousCommit = hasIndex ? rows[0].last_commit : null;
 
+    await publishUpdate(jobId, {
+      stage: "cloning",
+      message: `Cloning repository ${repoFullName}...`,
+    });
+
     await sandbox.commands.run(`rm -rf ${baseDir} && mkdir -p ${baseDir}`);
     await sandbox.commands.run(`git clone ${repourl} ${cloneDir}`);
+
     const latestCommitResult = await sandbox.commands.run(
       `cd ${cloneDir} && git rev-parse HEAD`
     );
     const latestCommit = latestCommitResult.stdout.trim();
 
     if (previousCommit && latestCommit === previousCommit) {
+      await publishUpdate(jobId, {
+        stage: "complete",
+        message: "Repository already up to date, skipping reindex.",
+      });
       console.log(" Repo already up to date, skipping reindex.");
       return;
     }
+
+    await publishUpdate(jobId, {
+      stage: "embedding",
+      message: "Initializing embeddings model...",
+    });
 
     const embeddings = new HuggingFaceInferenceEmbeddings({
       model: "sentence-transformers/all-MiniLM-L6-v2",
@@ -72,6 +94,11 @@ export const indexRepo = async (repourl: string) => {
     const summaries: any[] = [];
 
     if (!hasIndex) {
+      await publishUpdate(jobId, {
+        stage: "indexing",
+        message: "No previous index found. Starting full indexing...",
+      });
+
       console.log("no previous index, indexing");
       const filesOutput = await sandbox.commands.run(
         `find ${cloneDir} -type f`
@@ -85,6 +112,12 @@ export const indexRepo = async (repourl: string) => {
             [".py", ".ts", ".js", ".go", ".java"].some((ext) => f.endsWith(ext))
         );
 
+      await publishUpdate(jobId, {
+        stage: "indexing",
+        message: `Found ${files.length} files to index...`,
+      });
+
+      let processedFiles = 0;
       for (const path of files) {
         try {
           const content = await sandbox.files.read(path);
@@ -99,11 +132,25 @@ export const indexRepo = async (repourl: string) => {
               },
             })
           );
+          processedFiles++;
+
+          // Update progress every 10 files
+          if (processedFiles % 10 === 0) {
+            await publishUpdate(jobId, {
+              stage: "indexing",
+              message: `Processing files... ${processedFiles}/${files.length}`,
+            });
+          }
         } catch (error) {
           console.warn(` Skipping unreadable file: ${path}`);
         }
       }
     } else {
+      await publishUpdate(jobId, {
+        stage: "updating",
+        message: `Incremental update from ${previousCommit.substring(0, 7)} → ${latestCommit.substring(0, 7)}...`,
+      });
+
       console.log(
         `Incremental update from ${previousCommit} → ${latestCommit}`
       );
@@ -123,6 +170,11 @@ export const indexRepo = async (repourl: string) => {
             file?.endsWith(ext)
           )
         );
+
+      await publishUpdate(jobId, {
+        stage: "updating",
+        message: `Found ${changedFiles.length} changed files...`,
+      });
 
       for (const { status, file } of changedFiles) {
         if (status === "D") {
@@ -147,13 +199,25 @@ export const indexRepo = async (repourl: string) => {
         }
       }
     }
+
     if (docs.length > 0) {
+      await publishUpdate(jobId, {
+        stage: "vectorizing",
+        message: `Adding ${docs.length} documents to vector store...`,
+      });
+
       await vectorstore.addDocuments(docs);
       console.log(`Indexed ${docs.length} documents`);
     }
 
+    await publishUpdate(jobId, {
+      stage: "saving",
+      message: "Saving repository summary...",
+    });
+
     const encoded = encode(summaries);
-    fs.writeFileSync(`./docs_summary_${repoName}.toon`, encoded);
+    // fs.writeFileSync(`./docs_summary_${repoName}.toon`, encoded);
+
     await pool.query(
       `INSERT INTO repo_index_state (repo_name, last_commit, last_indexed_at, total_files)
        VALUES ($1, $2, NOW(), $3)
@@ -161,44 +225,50 @@ export const indexRepo = async (repourl: string) => {
        DO UPDATE SET last_commit = EXCLUDED.last_commit, last_indexed_at = NOW()`,
       [repoName, latestCommit, docs.length]
     );
+
+    await publishUpdate(jobId, {
+      stage: "complete",
+      message: `Repository ${repoName} indexed successfully! (${docs.length} files)`,
+    });
+
     console.log(` Repo ${repoName} updated to commit ${latestCommit}`);
   } catch (error) {
     console.error(" Error during indexing:", error);
+
+    await publishUpdate(jobId, {
+      stage: "error",
+      message: ` Error during indexing: ${error instanceof Error ? error.message : String(error)}`,
+    });
+
+    throw error;
   } finally {
+    await publishUpdate(jobId, {
+      stage: "cleanup",
+      message: "Cleaning up resources...",
+    });
+
     const shutdown = async () => {
       console.log("cleaning up");
-      try {
-        await pool.end();
-        console.log("pg pool closed");
-      } catch (error) {
-        console.log("error closing pool");
-      }
-
       try {
         await sandbox.kill();
         console.log("sandbox killed");
       } catch (error) {
-        console.log("error killing the sanbox", error);
+        console.log("error killing the sandbox", error);
       }
     };
 
     const timeout = new Promise((resolve) =>
       setTimeout(() => {
-        console.log("⏱️ Forced exit (cleanup timeout)");
+        console.log("Cleanup timeout reached");
         resolve("timeout");
       }, 3000)
     );
 
-    const result = await Promise.race([shutdown(), timeout]);
+    await Promise.race([shutdown(), timeout]);
 
-    if (result !== "timeout") {
-      await new Promise((r) => setTimeout(r, 200));
-    }
-
-    console.log("✨ Exiting now...");
-    if (process.env.WORKER_MODE !== "queue") {
-      process.exit(0);
-    }
+    console.log(" Cleanup complete");
+    // Removed process.exit(0) - let the function return normally
+    // so queryRepo can continue execution
   }
 };
 

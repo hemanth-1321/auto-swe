@@ -8,13 +8,14 @@ import Repos from "./repos";
 import { processRepo } from "@/app/action/processRepo";
 import { toast } from "sonner";
 import { JobUpdates } from "./JobUpdates";
+import { Plus } from "lucide-react";
 
 export const Chat = () => {
   const [selectedRepo, setSelectedRepo] = useState<string>("");
   const [prompt, setPrompt] = useState<string>("");
   const [jobId, setJobId] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-
+  const APP_SLUG = "auto-swe";
   const handleRepoSelect = (repo: string) => {
     setSelectedRepo(repo);
   };
@@ -32,7 +33,7 @@ export const Chat = () => {
     if (response.success) {
       toast.success(`Processing started — Job ID: ${response.data.jobId}`);
       setJobId(response.data.jobId);
-      setPrompt(""); // clear prompt for new input
+      setPrompt("");
     } else {
       toast.error(response.error || "Failed to start job");
     }
@@ -43,7 +44,26 @@ export const Chat = () => {
   return (
     <div className="w-full max-w-3xl mx-auto mt-20">
       <Card className="p-6 space-y-4 shadow-md rounded-2xl">
-        <Repos onSelect={handleRepoSelect} />
+        <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4 mb-4">
+          <div className="flex-1 flex flex-col sm:justify-center">
+            <Repos onSelect={handleRepoSelect} />
+          </div>
+
+          <div className="mt-6">
+            <Button
+              onClick={() =>
+                window.open(
+                  `https://github.com/apps/${APP_SLUG}/installations/new`,
+                  "_blank"
+                )
+              }
+              className="w-full sm:w-auto px-2 py-2  rounded-lg transitionfont-medium flex items-center justify-center gap-2 mt-2 sm:mt-0 h-10"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="sm:inline">Add Repositories</span>
+            </Button>
+          </div>
+        </div>
 
         <Textarea
           value={prompt}

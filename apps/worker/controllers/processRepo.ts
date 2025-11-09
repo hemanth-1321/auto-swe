@@ -185,8 +185,7 @@ export const processRepo = async (
 
     await publishUpdate(jobId, {
       stage: "complete",
-      message: "Pull request created successfully.",
-      prUrl: pr.html_url,
+      message: `Pull request created successfully ${pr.html_url}.`,
     });
 
     console.log("Pull request created:", pr.html_url);

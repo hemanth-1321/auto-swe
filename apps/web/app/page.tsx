@@ -7,11 +7,14 @@ import { Chat } from "@/components/Chat";
 
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
   const GITHUB_APP_NAME = "auto-swe";
 
   useEffect(() => {
+    // Run only after component mounts (client-side)
     const storedToken = localStorage.getItem("token");
     setToken(storedToken);
+    setMounted(true);
   }, []);
 
   const handleInstall = () => {
@@ -20,6 +23,9 @@ export default function Home() {
       "_blank"
     );
   };
+
+  // Don't render anything until the component is mounted
+  if (!mounted) return null;
 
   if (!token) {
     return (

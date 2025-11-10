@@ -1,4 +1,4 @@
-name: Build and Deploy
+name: Build and Deploy Autoswe
 
 on:
   push:
@@ -10,21 +10,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      # 1️⃣ Checkout repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2️⃣ Setup GitHub App private key
       - name: Setup private key
         run: |
           echo "${{ secrets.MY_GITHUB_PRIVATE_KEY }}" > /tmp/private-key.pem
           chmod 600 /tmp/private-key.pem
 
+      # 3️⃣ Log in to Docker Hub
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Build and push Docker image
+      # 4️⃣ Build and push Docker image
+      - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -32,7 +36,8 @@ jobs:
           push: true
           tags: hemanth2113/autoswe:latest
 
-      - name: Ensure Docker is installed on VM
+      # 5️⃣ Ensure Docker is installed on remote VM
+      - name: Ensure Docker is installed
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -44,10 +49,15 @@ jobs:
               curl -fsSL https://get.docker.com -o get-docker.sh
               sudo sh get-docker.sh
               sudo usermod -aG docker $USER
-            else
-              echo "Docker already installed."
             fi
 
+            if ! docker compose version &>/dev/null && ! docker-compose version &>/dev/null; then
+              echo "Installing Docker Compose..."
+              sudo curl -L "https://github.com/docker/compose/releases/download/v2.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+              sudo chmod +x /usr/local/bin/docker-compose
+            fi
+
+      # 6️⃣ Deploy to server
       - name: Deploy to Server
         uses: appleboy/ssh-action@master
         with:
@@ -57,7 +67,8 @@ jobs:
           script: |
             set -e
             echo "📁 Navigating to project directory..."
-            cd ~/auto-swe || mkdir -p ~/auto-swe && cd ~/auto-swe
+            mkdir -p ~/auto-swe
+            cd ~/auto-swe
 
             echo "🧾 Writing .env file..."
             cat > .env <<EOF
@@ -75,17 +86,41 @@ jobs:
             DATABASE_URL=${{ secrets.DATABASE_URL }}
             EOF
 
-            echo "🔑 Uploading GitHub App private key..."
+            echo "🔑 Writing GitHub App private key..."
             echo "${{ secrets.MY_GITHUB_PRIVATE_KEY }}" > private-key.pem
             chmod 600 private-key.pem
 
-            echo "🧹 Cleaning up old containers..."
-            docker compose down || true
+            echo "🧾 Writing docker-compose.yml..."
+            cat > docker-compose.yml <<'YAML'
+            version: "3.9"
+            services:
+              server:
+                image: hemanth2113/autoswe:latest
+                container_name: auto-swe-server
+                env_file: .env
+                ports:
+                  - "8000:8000"
+                restart: unless-stopped
+                command: ["bun", "run", "server"]
+
+              worker:
+                image: hemanth2113/autoswe:latest
+                container_name: auto-swe-worker
+                env_file: .env
+                restart: unless-stopped
+                command: ["bun", "run", "worker"]
+            YAML
 
             echo "🐳 Pulling latest Docker image..."
-            docker pull hemanth2113/autoswe:latest
+            docker compose pull
+
+            echo "🧹 Stopping old containers..."
+            docker compose down || true
 
             echo "🚀 Starting containers..."
             docker compose up -d
+
+            echo "🧽 Cleaning old images..."
+            docker image prune -f
 
             echo "✅ Deployment complete!"

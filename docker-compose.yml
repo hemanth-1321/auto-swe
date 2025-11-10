@@ -7,12 +7,16 @@ services:
     env_file: .env
     ports:
       - "8000:8000"
-    restart: always
+    restart: unless-stopped
     command: ["bun", "run", "server"]
+    volumes:
+      - ./private-key.pem:/app/private-key.pem:ro
 
   worker:
     image: hemanth2113/autoswe:latest
     container_name: auto-swe-worker
     env_file: .env
-    restart: always
+    restart: unless-stopped
     command: ["bun", "run", "worker"]
+    volumes:
+      - ./private-key.pem:/app/private-key.pem:ro

@@ -10,7 +10,6 @@ import RepoRoute from "./routes/github";
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.set("trust proxy", true);
 app.use(cookieParser());
 app.use(
   express.json({

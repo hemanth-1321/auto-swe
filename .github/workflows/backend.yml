@@ -14,7 +14,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup GitHub App private key
+      # 2️⃣ Setup GitHub App private key (for local use if needed)
       - name: Setup private key
         run: |
           echo "${{ secrets.MY_GITHUB_PRIVATE_KEY }}" > /tmp/private-key.pem
@@ -36,7 +36,7 @@ jobs:
           push: true
           tags: hemanth2113/autoswe:latest
 
-      # 5️⃣ Ensure Docker is installed on remote VM
+      # 5️⃣ Ensure Docker is installed on the remote VM
       - name: Ensure Docker is installed
         uses: appleboy/ssh-action@master
         with:
@@ -57,7 +57,7 @@ jobs:
               sudo chmod +x /usr/local/bin/docker-compose
             fi
 
-      # 6️⃣ Deploy to server
+      # 6️⃣ Deploy to the remote server
       - name: Deploy to Server
         uses: appleboy/ssh-action@master
         with:
@@ -102,6 +102,8 @@ jobs:
                   - "8000:8000"
                 restart: unless-stopped
                 command: ["bun", "run", "server"]
+                volumes:
+                  - ./private-key.pem:/app/private-key.pem:ro
 
               worker:
                 image: hemanth2113/autoswe:latest
@@ -109,6 +111,8 @@ jobs:
                 env_file: .env
                 restart: unless-stopped
                 command: ["bun", "run", "worker"]
+                volumes:
+                  - ./private-key.pem:/app/private-key.pem:ro
             YAML
 
             echo "🐳 Pulling latest Docker image..."

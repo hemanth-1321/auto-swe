@@ -1,22 +1,16 @@
-version: "3.9"
-
 services:
-  server:
+  auto-swe-server:
     image: hemanth2113/autoswe:latest
-    container_name: auto-swe-server
-    env_file: .env
     ports:
       - "8000:8000"
-    restart: unless-stopped
-    command: ["bun", "run", "server"]
     volumes:
       - ./private-key.pem:/app/private-key.pem:ro
+    environment:
+      - MY_GITHUB_PRIVATE_KEY_PATH=/app/private-key.pem
 
-  worker:
+  auto-swe-worker:
     image: hemanth2113/autoswe:latest
-    container_name: auto-swe-worker
-    env_file: .env
-    restart: unless-stopped
-    command: ["bun", "run", "worker"]
     volumes:
       - ./private-key.pem:/app/private-key.pem:ro
+    environment:
+      - MY_GITHUB_PRIVATE_KEY_PATH=/app/private-key.pem

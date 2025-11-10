@@ -84,6 +84,7 @@ jobs:
             PG_URL=${{ secrets.PG_URL }}
             OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             DATABASE_URL=${{ secrets.DATABASE_URL }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
             EOF
 
             echo "🔑 Writing GitHub App private key..."

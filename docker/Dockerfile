@@ -25,4 +25,4 @@ EXPOSE 8000
 
 USER bun
 
-CMD ["bun", "run", "apps/server/index.ts"]
+CMD ["bun", "run", "server"]

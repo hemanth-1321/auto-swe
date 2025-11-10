@@ -5,8 +5,8 @@ import fs from "fs";
 import { App } from "@octokit/app";
 import { Octokit } from "octokit";
 
-const GITHUB_APP_ID = process.env.GITHUB_APP_ID;
-const GITHUB_PRIVATE_KEY_PATH = process.env.GITHUB_PRIVATE_KEY_PATH;
+const GITHUB_APP_ID = process.env.MY_GITHUB_APP_ID;
+const GITHUB_PRIVATE_KEY_PATH = process.env.MY_GITHUB_PRIVATE_KEY_PATH;
 
 if (!GITHUB_APP_ID) throw new Error("GITHUB_APP_ID is not set");
 if (!GITHUB_PRIVATE_KEY_PATH)

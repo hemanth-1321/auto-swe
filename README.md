@@ -4,6 +4,10 @@
 An AI-powered automation system for processing Git repositories, generating PRs, and maintaining vectorized repo metadata for advanced analysis.
 ---
 
+## High-level architecture
+
+![AI Engineer Workflow](./auto-swe.png)
+
 ## **Features**
 
 - **Repo Indexing**:
@@ -78,21 +82,6 @@ DATABASE_URL=
 JWT_SECRET=
 ```
 
----
-
-### **Running the Worker**
-
-```bash
-bun run dev
-# or for production
-bun run start
-```
-
-- BullMQ queues will process repo indexing and PR generation jobs automatically.
-- Incremental updates are triggered via GitHub webhook events for `push` on main/master.
-
----
-
 ## **Folder Structure**
 
 ```
@@ -105,29 +94,5 @@ bun run start
   /redis            #redis
   /shared        # github
 ```
-
----
-
-## **How It Works**
-
-1. **Repo Indexing**
-   - When a repo is registered or a `push` occurs:
-     - Check if the repo is already indexed in PGVector
-     - If not, create embeddings and store metadata
-
-2. **AI Processing**
-   - LangGraph nodes analyze code, generate insights, and create PRs
-
-3. **Incremental Updates**
-   - On `push` to `main/master`:
-     - Only updated files are processed
-     - PGVector metadata is updated incrementally
-
-4. **Queue Processing**
-   - BullMQ queues jobs for indexing and AI processing
-   - Worker nodes handle tasks in parallel
-
-5. **Sandbox Execution**
-   - All dynamic code execution runs inside **E2B sandbox** for security
 
 ---

@@ -10,24 +10,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup GitHub App private key (for local use if needed)
       - name: Setup private key
         run: |
           echo "${{ secrets.MY_GITHUB_PRIVATE_KEY }}" > /tmp/private-key.pem
           chmod 600 /tmp/private-key.pem
 
-      # 3️⃣ Log in to Docker Hub
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      # 4️⃣ Build and push Docker image
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
@@ -36,7 +32,6 @@ jobs:
           push: true
           tags: hemanth2113/autoswe:latest
 
-      # 5️⃣ Ensure Docker is installed on the remote VM
       - name: Ensure Docker is installed
         uses: appleboy/ssh-action@master
         with:
@@ -57,7 +52,6 @@ jobs:
               sudo chmod +x /usr/local/bin/docker-compose
             fi
 
-      # 6️⃣ Deploy to the remote server
       - name: Deploy to Server
         uses: appleboy/ssh-action@master
         with:
@@ -66,11 +60,11 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             set -e
-            echo "📁 Navigating to project directory..."
+            echo "Navigating to project directory..."
             mkdir -p ~/auto-swe
             cd ~/auto-swe
 
-            echo "🧾 Writing .env file..."
+            echo "Writing .env file..."
             cat > .env <<EOF
             MY_GITHUB_APP_ID=${{ secrets.MY_GITHUB_APP_ID }}
             MY_GITHUB_CLIENT_ID=${{ secrets.MY_GITHUB_CLIENT_ID }}
@@ -87,11 +81,13 @@ jobs:
             JWT_SECRET=${{ secrets.JWT_SECRET }}
             EOF
 
-            echo "🔑 Writing GitHub App private key..."
+            echo "Writing GitHub App private key..."
             echo "${{ secrets.MY_GITHUB_PRIVATE_KEY }}" > private-key.pem
-            chmod 600 private-key.pem
+            chmod 644 private-key.pem
+            sudo chown root:root private-key.pem
 
-            echo "🧾 Writing docker-compose.yml..."
+
+            echo "Writing docker-compose.yml..."
             cat > docker-compose.yml <<'YAML'
             version: "3.9"
             services:
@@ -116,16 +112,16 @@ jobs:
                   - ./private-key.pem:/app/private-key.pem:ro
             YAML
 
-            echo "🐳 Pulling latest Docker image..."
+            echo "Pulling latest Docker image..."
             docker compose pull
 
-            echo "🧹 Stopping old containers..."
+            echo "Stopping old containers..."
             docker compose down || true
 
-            echo "🚀 Starting containers..."
+            echo "Starting containers..."
             docker compose up -d
 
-            echo "🧽 Cleaning old images..."
+            echo "Cleaning old images..."
             docker image prune -f
 
-            echo "✅ Deployment complete!"
+            echo "Deployment complete!"

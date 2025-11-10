@@ -20,6 +20,7 @@ export const JobUpdates = ({ jobId }: JobUpdatesProps) => {
     );
 
     eventSource.onmessage = (event) => {
+      console.log("SSE message received:", event.data);
       let message = "";
 
       try {

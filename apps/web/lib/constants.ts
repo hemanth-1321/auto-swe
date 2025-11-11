@@ -1,1 +1,1 @@
-export const BACKEND_URL = "https://api.autoswe.hemanth.buzz";
+export const BACKEND_URL = process.env.NEXT_BACKEND_URL;

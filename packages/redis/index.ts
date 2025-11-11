@@ -2,14 +2,13 @@ import { Queue } from "bullmq";
 import { createClient } from "redis";
 
 export const redisUrl = process.env.REDIS_URL!;
-const useTLS = redisUrl.startsWith("rediss://");
+const isTLS = redisUrl.startsWith("rediss://");
 
-export const connection = {
+export const connection: any = {
   url: redisUrl,
-  socket: useTLS
+  socket: isTLS
     ? {
         tls: true,
-        rejectUnauthorized: false,
         reconnectStrategy: (retries: number) => Math.min(retries * 200, 2000),
       }
     : {
@@ -17,19 +16,28 @@ export const connection = {
       },
 };
 
-export const publisher = createClient({ url: redisUrl });
+export const publisher = createClient(connection);
+export const subscriber = createClient(connection);
 
-publisher.on("connect", () => console.log("Redis connected"));
-publisher.on("ready", () => console.log(" Redis ready for commands"));
-publisher.on("reconnecting", () => console.log("Redis reconnecting..."));
-publisher.on("end", () => console.log(" Redis connection closed"));
-publisher.on("error", (err) => console.error(" Redis error:", err));
+const log = (prefix: string) => (msg: string) =>
+  console.log(`[Redis ${prefix}] ${msg}`);
+
+[publisher, subscriber].forEach((client, i) => {
+  const name = i === 0 ? "Publisher" : "Subscriber";
+  client.on("connect", log(`${name} connected`));
+  client.on("ready", log(`${name} ready`));
+  client.on("reconnecting", log(`${name} reconnecting`));
+  client.on("end", log(`${name} closed`));
+  client.on("error", (err) => console.error(`⚠️ ${name} error:`, err.message));
+});
 
 await publisher.connect();
+await subscriber.connect();
 
 export const publishUpdate = (jobId: string, data: any) => {
   publisher.publish(`job:${jobId}:updates`, JSON.stringify(data));
 };
 
+// ---- Queues ----
 export const indexQueue = new Queue("indexQueue", { connection });
 export const processRepoQueue = new Queue("processRepo", { connection });

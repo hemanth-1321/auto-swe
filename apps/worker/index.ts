@@ -9,7 +9,7 @@ const workerIndex = new Worker(
   "indexQueue",
   async (job) => {
     console.log("Indexing job received:", job.data);
-    await indexRepo(job.data.url);
+    await indexRepo(job.data.url, job.data.id);
     return { success: true, processedAt: new Date().toISOString() };
   },
   {

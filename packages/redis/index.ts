@@ -1,29 +1,35 @@
-import { Queue, Worker } from "bullmq";
+import { Queue } from "bullmq";
 import { createClient } from "redis";
+
 export const redisUrl = process.env.REDIS_URL!;
+const useTLS = redisUrl.startsWith("rediss://");
 
-export const queue = new Queue("indexQueue", { connection: { url: redisUrl } });
-
-export const publisher = createClient({
+export const connection = {
   url: redisUrl,
-  socket: {
-    tls: true,
-    rejectUnauthorized: false,
-    reconnectStrategy: (retries) => {
-      console.log(`🔁 Redis reconnect attempt ${retries}`);
-      return Math.min(retries * 200, 2000); // 0.2s → 2s
-    },
-  },
-});
+  socket: useTLS
+    ? {
+        tls: true,
+        rejectUnauthorized: false,
+        reconnectStrategy: (retries: number) => Math.min(retries * 200, 2000),
+      }
+    : {
+        reconnectStrategy: (retries: number) => Math.min(retries * 200, 2000),
+      },
+};
 
-publisher.on("connect", () => console.log("✅ publisher connected"));
-publisher.on("ready", () => console.log("🚀 publisher ready for commands"));
-publisher.on("reconnecting", () => console.log("♻️ publisher reconnecting..."));
-publisher.on("end", () => console.log("❌ publisher connection closed"));
-publisher.on("error", (err) => console.error("⚠️ Redis error:", err));
+export const publisher = createClient({ url: redisUrl });
+
+publisher.on("connect", () => console.log("Redis connected"));
+publisher.on("ready", () => console.log(" Redis ready for commands"));
+publisher.on("reconnecting", () => console.log("Redis reconnecting..."));
+publisher.on("end", () => console.log(" Redis connection closed"));
+publisher.on("error", (err) => console.error(" Redis error:", err));
 
 await publisher.connect();
 
 export const publishUpdate = (jobId: string, data: any) => {
   publisher.publish(`job:${jobId}:updates`, JSON.stringify(data));
 };
+
+export const indexQueue = new Queue("indexQueue", { connection });
+export const processRepoQueue = new Queue("processRepo", { connection });

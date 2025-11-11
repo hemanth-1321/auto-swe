@@ -1,11 +1,9 @@
 import express from "express";
-import { redisUrl } from "@repo/redis/client";
-import { Queue } from "bullmq";
+import { processRepoQueue } from "@repo/redis/client";
 import { authMiddleware } from "../middleware/middleware";
 import { prisma } from "@repo/db/prisma";
 
 const router = express.Router();
-const queue = new Queue("processRepo", { connection: { url: redisUrl } });
 
 router.post("/create", authMiddleware, async (req, res) => {
   if (!req.user) {
@@ -22,7 +20,7 @@ router.post("/create", authMiddleware, async (req, res) => {
     const installationId = user?.installationId;
     const jobId = `job-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
-    const job = await queue.add(
+    const job = await processRepoQueue.add(
       "processRepo",
       { repoUrl, prompt, installationId, jobId },
       { jobId }

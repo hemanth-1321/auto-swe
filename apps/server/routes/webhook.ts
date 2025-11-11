@@ -1,10 +1,7 @@
 import express from "express";
 import crypto from "crypto";
-import { redisUrl } from "@repo/redis/client";
-import { Queue } from "bullmq";
-
+import { indexQueue } from "@repo/redis/client";
 const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || "hemanth";
-const queue = new Queue("indexQueue", { connection: { url: redisUrl } });
 
 function verifySignature(payload: Buffer, signature: string): boolean {
   if (!signature) return false;
@@ -37,7 +34,7 @@ router.post("/github", async (req, res) => {
         `[Webhook] Changes detected on branch: ${ref} in ${repoName}`
       );
 
-      await queue.add("index_repo", {
+      await indexQueue.add("index_repo", {
         repo: repoName,
         branch: ref,
         url: repoUrl,

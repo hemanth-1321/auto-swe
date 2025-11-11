@@ -6,6 +6,9 @@ export const queue = new Queue("indexQueue", { connection: { url: redisUrl } });
 
 export const publisher = createClient({
   url: redisUrl,
+  socket: {
+    tls: true,
+  },
 });
 await publisher.connect();
 

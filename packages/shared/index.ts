@@ -80,6 +80,7 @@ export const getUserFromInstallation = async (installationId: number) => {
 
     return {
       githubId: account?.id,
+      //@ts-ignore
       name: account?.login,
       avatarUrl: account?.avatar_url,
     };

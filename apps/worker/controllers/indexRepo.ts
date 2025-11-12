@@ -10,7 +10,6 @@ import { publishUpdate } from "@repo/redis/client";
 export const indexRepo = async (repourl: string, jobId: string) => {
   const baseDir = "/home/user/project";
   const repoName = repourl.split("/").pop()!.replace(".git", "");
-
   const cloneDir = `${baseDir}/${repoName}`;
   const repoFullName = repourl
     .replace("https://github.com/", "")
@@ -37,12 +36,12 @@ export const indexRepo = async (repourl: string, jobId: string) => {
     });
 
     await pool.query(
-      ` CREATE TABLE IF NOT EXISTS repo_index_state (
+      `CREATE TABLE IF NOT EXISTS repo_index_state (
         repo_name TEXT PRIMARY KEY,
         last_commit TEXT NOT NULL,
         last_indexed_at TIMESTAMP DEFAULT NOW(),
         total_files INTEGER DEFAULT 0
-    )`
+      )`
     );
 
     const { rows } = await pool.query(
@@ -66,14 +65,38 @@ export const indexRepo = async (repourl: string, jobId: string) => {
     );
     const latestCommit = latestCommitResult.stdout.trim();
 
-    if (previousCommit && latestCommit === previousCommit) {
+    // -----------------------
+    // Check if previous commit exists in repo
+    let doIncremental = false;
+
+    if (previousCommit) {
+      const checkCommit = await sandbox.commands.run(
+        `cd ${cloneDir} && git cat-file -t ${previousCommit}`
+      );
+      if (checkCommit.exitCode === 0) {
+        doIncremental = true;
+      } else {
+        console.warn(
+          `Previous commit ${previousCommit} not found in repo. Performing full reindex.`
+        );
+        previousCommit = null;
+      }
+    }
+
+    if (!previousCommit || latestCommit === previousCommit) {
       await publishUpdate(jobId, {
         stage: "complete",
-        message: "Repository already up to date, skipping reindex.",
+        message:
+          latestCommit === previousCommit
+            ? "Repository already up to date, skipping reindex."
+            : "Starting full indexing...",
       });
-      console.log(" Repo already up to date, skipping reindex.");
-      return;
+      if (latestCommit === previousCommit) {
+        console.log("Repo already up to date, skipping reindex.");
+        return;
+      }
     }
+    // -----------------------
 
     await publishUpdate(jobId, {
       stage: "embedding",
@@ -93,67 +116,17 @@ export const indexRepo = async (repourl: string, jobId: string) => {
     const docs: Document[] = [];
     const summaries: any[] = [];
 
-    if (!hasIndex) {
-      await publishUpdate(jobId, {
-        stage: "indexing",
-        message: "No previous index found. Starting full indexing...",
-      });
-
-      console.log("no previous index, indexing");
-      const filesOutput = await sandbox.commands.run(
-        `find ${cloneDir} -type f`
-      );
-
-      const files = filesOutput.stdout
-        .split("\n")
-        .filter(
-          (f) =>
-            f &&
-            [".py", ".ts", ".js", ".go", ".java"].some((ext) => f.endsWith(ext))
-        );
-
-      await publishUpdate(jobId, {
-        stage: "indexing",
-        message: `Found ${files.length} files to index...`,
-      });
-
-      let processedFiles = 0;
-      for (const path of files) {
-        try {
-          const content = await sandbox.files.read(path);
-          const docMeta = extractMeta(path, content);
-          summaries.push(docMeta);
-          docs.push(
-            new Document({
-              pageContent: JSON.stringify(docMeta),
-              metadata: {
-                path,
-                repo: repoFullName,
-              },
-            })
-          );
-          processedFiles++;
-
-          // Update progress every 10 files
-          if (processedFiles % 10 === 0) {
-            await publishUpdate(jobId, {
-              stage: "indexing",
-              message: `Processing files... ${processedFiles}/${files.length}`,
-            });
-          }
-        } catch (error) {
-          console.warn(` Skipping unreadable file: ${path}`);
-        }
-      }
-    } else {
+    if (doIncremental) {
+      // -----------------------
+      // Incremental update
       await publishUpdate(jobId, {
         stage: "updating",
-        message: `Incremental update from ${previousCommit.substring(0, 7)} → ${latestCommit.substring(0, 7)}...`,
+        message: `Incremental update from ${previousCommit!.substring(
+          0,
+          7
+        )} → ${latestCommit.substring(0, 7)}...`,
       });
 
-      console.log(
-        `Incremental update from ${previousCommit} → ${latestCommit}`
-      );
       const diffResult = await sandbox.commands.run(
         `cd ${cloneDir} && git diff --name-status ${previousCommit} ${latestCommit}`
       );
@@ -198,6 +171,55 @@ export const indexRepo = async (repourl: string, jobId: string) => {
           console.warn(`Could not read changed file: ${file}`);
         }
       }
+    } else {
+      // -----------------------
+      // Full indexing
+      await publishUpdate(jobId, {
+        stage: "indexing",
+        message: "Performing full repository indexing...",
+      });
+
+      const filesOutput = await sandbox.commands.run(
+        `find ${cloneDir} -type f`
+      );
+
+      const files = filesOutput.stdout
+        .split("\n")
+        .filter(
+          (f) =>
+            f &&
+            [".py", ".ts", ".js", ".go", ".java"].some((ext) => f.endsWith(ext))
+        );
+
+      await publishUpdate(jobId, {
+        stage: "indexing",
+        message: `Found ${files.length} files to index...`,
+      });
+
+      let processedFiles = 0;
+      for (const path of files) {
+        try {
+          const content = await sandbox.files.read(path);
+          const docMeta = extractMeta(path, content);
+          summaries.push(docMeta);
+          docs.push(
+            new Document({
+              pageContent: JSON.stringify(docMeta),
+              metadata: { path, repo: repoFullName },
+            })
+          );
+          processedFiles++;
+
+          if (processedFiles % 10 === 0) {
+            await publishUpdate(jobId, {
+              stage: "indexing",
+              message: `Processing files... ${processedFiles}/${files.length}`,
+            });
+          }
+        } catch (error) {
+          console.warn(`Skipping unreadable file: ${path}`);
+        }
+      }
     }
 
     if (docs.length > 0) {
@@ -231,13 +253,13 @@ export const indexRepo = async (repourl: string, jobId: string) => {
       message: `Repository ${repoName} indexed successfully! (${docs.length} files)`,
     });
 
-    console.log(` Repo ${repoName} updated to commit ${latestCommit}`);
+    console.log(`Repo ${repoName} updated to commit ${latestCommit}`);
   } catch (error) {
-    console.error(" Error during indexing:", error);
+    console.error("Error during indexing:", error);
 
     await publishUpdate(jobId, {
       stage: "error",
-      message: ` Error during indexing: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Error during indexing: ${error instanceof Error ? error.message : String(error)}`,
     });
 
     throw error;
@@ -248,12 +270,12 @@ export const indexRepo = async (repourl: string, jobId: string) => {
     });
 
     const shutdown = async () => {
-      console.log("cleaning up");
+      console.log("Cleaning up sandbox...");
       try {
         await sandbox.kill();
-        console.log("sandbox killed");
+        console.log("Sandbox killed");
       } catch (error) {
-        console.log("error killing the sandbox", error);
+        console.log("Error killing the sandbox", error);
       }
     };
 
@@ -265,13 +287,12 @@ export const indexRepo = async (repourl: string, jobId: string) => {
     );
 
     await Promise.race([shutdown(), timeout]);
-
-    console.log(" Cleanup complete");
-    // Removed process.exit(0) - let the function return normally
-    // so queryRepo can continue execution
+    console.log("Cleanup complete");
   }
 };
 
+// -----------------------
+// Extract metadata (unchanged)
 function extractMeta(path: string, content: string) {
   const functionRegex =
     /\b(?:async\s+)?(?:function|def|func)\s+([A-Za-z_]\w*)|\b([A-Za-z_]\w*)\s*=\s*(?:async\s*)?\(.*?\)\s*=>|\b([A-Za-z_]\w*)\s*\([^)]*\)\s*(?:{|\:)/g;

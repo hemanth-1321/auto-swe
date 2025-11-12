@@ -17,6 +17,7 @@ router.get("/updates/:jobId", async (req, res) => {
 
   await subscriber.subscribe(`job:${jobId}:updates`, (message) => {
     res.write(`data: ${message}\n\n`);
+    console.log(`data: ${message}\n\n`);
   });
 
   // Handle client disconnect

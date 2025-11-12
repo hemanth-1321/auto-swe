@@ -17,7 +17,7 @@ export const indexRepo = async (repourl: string, jobId: string) => {
 
   await publishUpdate(jobId, {
     stage: "init",
-    message: "Preparing sandbox environment...",
+    message: "Preparing sandbox...",
   });
 
   const sandbox = await Sandbox.create({
@@ -25,38 +25,37 @@ export const indexRepo = async (repourl: string, jobId: string) => {
     timeoutMs: 30 * 60 * 1000,
   });
 
-  pool.on("error", (err) => {
-    console.log("Postgres pool error:", err);
-  });
+  pool.on("error", (err) => console.log("Postgres pool error:", err));
 
   try {
+    // -----------------------
+    // Setup database table
     await publishUpdate(jobId, {
       stage: "setup",
-      message: "Setting up database tables...",
+      message: "Setting up DB tables...",
     });
-
-    await pool.query(
-      `CREATE TABLE IF NOT EXISTS repo_index_state (
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS repo_index_state (
         repo_name TEXT PRIMARY KEY,
         last_commit TEXT NOT NULL,
         last_indexed_at TIMESTAMP DEFAULT NOW(),
         total_files INTEGER DEFAULT 0
-      )`
-    );
+      )
+    `);
 
     const { rows } = await pool.query(
       `SELECT last_commit FROM repo_index_state WHERE repo_name = $1`,
       [repoName]
     );
-
     const hasIndex = rows.length > 0;
     let previousCommit = hasIndex ? rows[0].last_commit : null;
 
+    // -----------------------
+    // Clone repo
     await publishUpdate(jobId, {
       stage: "cloning",
-      message: `Cloning repository ${repoFullName}...`,
+      message: `Cloning ${repoFullName}...`,
     });
-
     await sandbox.commands.run(`rm -rf ${baseDir} && mkdir -p ${baseDir}`);
     await sandbox.commands.run(`git clone ${repourl} ${cloneDir}`);
 
@@ -66,38 +65,45 @@ export const indexRepo = async (repourl: string, jobId: string) => {
     const latestCommit = latestCommitResult.stdout.trim();
 
     // -----------------------
-    // Check if previous commit exists in repo
+    // Determine if we can do incremental indexing
     let doIncremental = false;
 
-    if (previousCommit) {
-      const checkCommit = await sandbox.commands.run(
-        `cd ${cloneDir} && git cat-file -t ${previousCommit}`
-      );
-      if (checkCommit.exitCode === 0) {
-        doIncremental = true;
-      } else {
+    if (previousCommit && previousCommit.trim() !== "") {
+      try {
+        const checkCommit = await sandbox.commands.run(
+          `cd ${cloneDir} && git cat-file -t ${previousCommit}`
+        );
+        if (checkCommit.exitCode === 0) {
+          doIncremental = true;
+        } else {
+          console.warn(
+            `Previous commit "${previousCommit}" invalid. Falling back to full indexing.`
+          );
+          previousCommit = null;
+        }
+      } catch (err) {
         console.warn(
-          `Previous commit ${previousCommit} not found in repo. Performing full reindex.`
+          `Error checking previous commit "${previousCommit}". Performing full indexing.`
         );
         previousCommit = null;
       }
     }
 
     if (!previousCommit || latestCommit === previousCommit) {
-      await publishUpdate(jobId, {
-        stage: "complete",
-        message:
-          latestCommit === previousCommit
-            ? "Repository already up to date, skipping reindex."
-            : "Starting full indexing...",
-      });
+      // full indexing
       if (latestCommit === previousCommit) {
-        console.log("Repo already up to date, skipping reindex.");
+        await publishUpdate(jobId, {
+          stage: "complete",
+          message: "Repository up to date. Skipping indexing.",
+        });
+        console.log("Repo already up to date.");
         return;
       }
+      doIncremental = false;
     }
-    // -----------------------
 
+    // -----------------------
+    // Initialize embeddings and vector store
     await publishUpdate(jobId, {
       stage: "embedding",
       message: "Initializing embeddings model...",
@@ -118,13 +124,10 @@ export const indexRepo = async (repourl: string, jobId: string) => {
 
     if (doIncremental) {
       // -----------------------
-      // Incremental update
+      // Incremental indexing
       await publishUpdate(jobId, {
         stage: "updating",
-        message: `Incremental update from ${previousCommit!.substring(
-          0,
-          7
-        )} → ${latestCommit.substring(0, 7)}...`,
+        message: `Incremental update ${previousCommit!.substring(0, 7)} → ${latestCommit.substring(0, 7)}...`,
       });
 
       const diffResult = await sandbox.commands.run(
@@ -144,11 +147,6 @@ export const indexRepo = async (repourl: string, jobId: string) => {
           )
         );
 
-      await publishUpdate(jobId, {
-        stage: "updating",
-        message: `Found ${changedFiles.length} changed files...`,
-      });
-
       for (const { status, file } of changedFiles) {
         if (status === "D") {
           await pool.query(
@@ -167,8 +165,8 @@ export const indexRepo = async (repourl: string, jobId: string) => {
               metadata: { path: file, repo: repoFullName },
             })
           );
-        } catch (error) {
-          console.warn(`Could not read changed file: ${file}`);
+        } catch (err) {
+          console.warn(`Failed to read file ${file}`);
         }
       }
     } else {
@@ -182,7 +180,6 @@ export const indexRepo = async (repourl: string, jobId: string) => {
       const filesOutput = await sandbox.commands.run(
         `find ${cloneDir} -type f`
       );
-
       const files = filesOutput.stdout
         .split("\n")
         .filter(
@@ -191,16 +188,11 @@ export const indexRepo = async (repourl: string, jobId: string) => {
             [".py", ".ts", ".js", ".go", ".java"].some((ext) => f.endsWith(ext))
         );
 
-      await publishUpdate(jobId, {
-        stage: "indexing",
-        message: `Found ${files.length} files to index...`,
-      });
-
-      let processedFiles = 0;
-      for (const path of files) {
+      for (let i = 0; i < files.length; i++) {
         try {
-          const content = await sandbox.files.read(path);
-          const docMeta = extractMeta(path, content);
+          const path = files[i];
+          const content = await sandbox.files.read(path!);
+          const docMeta = extractMeta(path!, content);
           summaries.push(docMeta);
           docs.push(
             new Document({
@@ -208,16 +200,15 @@ export const indexRepo = async (repourl: string, jobId: string) => {
               metadata: { path, repo: repoFullName },
             })
           );
-          processedFiles++;
 
-          if (processedFiles % 10 === 0) {
+          if ((i + 1) % 10 === 0) {
             await publishUpdate(jobId, {
               stage: "indexing",
-              message: `Processing files... ${processedFiles}/${files.length}`,
+              message: `Processing files... ${i + 1}/${files.length}`,
             });
           }
-        } catch (error) {
-          console.warn(`Skipping unreadable file: ${path}`);
+        } catch (err) {
+          console.warn(`Skipping unreadable file: ${files[i]}`);
         }
       }
     }
@@ -227,15 +218,8 @@ export const indexRepo = async (repourl: string, jobId: string) => {
         stage: "vectorizing",
         message: `Adding ${docs.length} documents to vector store...`,
       });
-
       await vectorstore.addDocuments(docs);
-      console.log(`Indexed ${docs.length} documents`);
     }
-
-    await publishUpdate(jobId, {
-      stage: "saving",
-      message: "Saving repository summary...",
-    });
 
     const encoded = encode(summaries);
     // fs.writeFileSync(`./docs_summary_${repoName}.toon`, encoded);
@@ -252,16 +236,13 @@ export const indexRepo = async (repourl: string, jobId: string) => {
       stage: "complete",
       message: `Repository ${repoName} indexed successfully! (${docs.length} files)`,
     });
-
     console.log(`Repo ${repoName} updated to commit ${latestCommit}`);
   } catch (error) {
     console.error("Error during indexing:", error);
-
     await publishUpdate(jobId, {
       stage: "error",
       message: `Error during indexing: ${error instanceof Error ? error.message : String(error)}`,
     });
-
     throw error;
   } finally {
     await publishUpdate(jobId, {
@@ -270,36 +251,29 @@ export const indexRepo = async (repourl: string, jobId: string) => {
     });
 
     const shutdown = async () => {
-      console.log("Cleaning up sandbox...");
       try {
         await sandbox.kill();
         console.log("Sandbox killed");
-      } catch (error) {
-        console.log("Error killing the sandbox", error);
+      } catch (err) {
+        console.warn("Error killing sandbox", err);
       }
     };
 
-    const timeout = new Promise((resolve) =>
-      setTimeout(() => {
-        console.log("Cleanup timeout reached");
-        resolve("timeout");
-      }, 3000)
-    );
-
-    await Promise.race([shutdown(), timeout]);
+    await Promise.race([
+      shutdown(),
+      new Promise((resolve) => setTimeout(resolve, 3000)),
+    ]);
     console.log("Cleanup complete");
   }
 };
 
 // -----------------------
-// Extract metadata (unchanged)
+// Extract metadata
 function extractMeta(path: string, content: string) {
   const functionRegex =
     /\b(?:async\s+)?(?:function|def|func)\s+([A-Za-z_]\w*)|\b([A-Za-z_]\w*)\s*=\s*(?:async\s*)?\(.*?\)\s*=>|\b([A-Za-z_]\w*)\s*\([^)]*\)\s*(?:{|\:)/g;
-
   const classRegex =
     /\b(?:export\s+)?class\s+([A-Za-z_]\w*)|\btype\s+([A-Za-z_]\w*)\s+struct/g;
-
   const importRegex =
     /\bimport\s+(?:\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]|([A-Za-z0-9_.*]+)\s*(?:from\s+['"]([^'"]+)['"])?|['"]([^'"]+)['"]|\([^)]+\)|([A-Za-z0-9_./]+))\s*;?|\bfrom\s+([A-Za-z0-9_.]+)\s+import\s+([A-Za-z0-9_.*]+)/g;
 
@@ -308,17 +282,14 @@ function extractMeta(path: string, content: string) {
   const imports: string[] = [];
 
   let match;
-
   while ((match = functionRegex.exec(content))) {
     const name = match[1] || match[2] || match[3];
     if (name && !functions.includes(name)) functions.push(name);
   }
-
   while ((match = classRegex.exec(content))) {
     const name = match[1] || match[2];
     if (name && !classes.includes(name)) classes.push(name);
   }
-
   while ((match = importRegex.exec(content))) {
     const candidates = [
       match[1],
@@ -330,9 +301,8 @@ function extractMeta(path: string, content: string) {
       match[7],
       match[8],
     ];
-    for (const c of candidates) {
+    for (const c of candidates)
       if (c && !imports.includes(c.trim())) imports.push(c.trim());
-    }
   }
 
   return { path, functions, classes, imports };

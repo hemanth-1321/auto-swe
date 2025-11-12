@@ -15,28 +15,26 @@ export const JobUpdates = ({ jobId }: JobUpdatesProps) => {
   useEffect(() => {
     if (!jobId) return;
 
+    // Clear messages when jobId changes
+    setMessages([]);
+
     const eventSource = new EventSource(
       `${BACKEND_URL}/publish/updates/${jobId}`
     );
 
     eventSource.onmessage = (event) => {
-      console.log("SSE message received:", event.data);
       let message = "";
-
       try {
         const parsed = JSON.parse(event.data);
         message = parsed.message || "";
       } catch {
         message = event.data;
       }
-
-      if (message) {
-        setMessages((prev) => [...prev, message]);
-      }
+      if (message) setMessages((prev) => [...prev, message]);
     };
 
-    eventSource.onerror = (error) => {
-      console.error("SSE error:", error);
+    eventSource.onerror = (err) => {
+      console.error("SSE error:", err);
       eventSource.close();
     };
 
@@ -45,6 +43,7 @@ export const JobUpdates = ({ jobId }: JobUpdatesProps) => {
     };
   }, [jobId]);
 
+  // Scroll to bottom on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);

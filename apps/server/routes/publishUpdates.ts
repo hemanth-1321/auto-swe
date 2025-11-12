@@ -3,9 +3,10 @@ import { subscriber } from "@repo/redis/client";
 
 const router = express.Router();
 
-// Track active job subscriptions to avoid multiple subscribes
-const activeJobs: Set<string> = new Set();
+// Track SSE clients per jobId
+const clients: Record<string, Set<express.Response>> = {};
 
+// SSE endpoint
 router.get("/updates/:jobId", async (req, res) => {
   const { jobId } = req.params;
 
@@ -15,28 +16,36 @@ router.get("/updates/:jobId", async (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
-  // Keepalive ping
+  // Add this response to clients
+  if (!clients[jobId]) clients[jobId] = new Set();
+  clients[jobId].add(res);
+
+  // Keepalive ping every 10 seconds
   const keepAlive = setInterval(() => {
     res.write("event: ping\n");
     res.write("data: keepalive\n\n");
   }, 10000);
 
-  // Subscribe only if not already active
-  if (!activeJobs.has(jobId)) {
-    activeJobs.add(jobId);
-
+  // Subscribe only once per jobId
+  if (clients[jobId].size === 1) {
     await subscriber.subscribe(`job:${jobId}:updates`, (message) => {
-      res.write(`data: ${message}\n\n`);
+      const data = `data: ${message}\n\n`;
+      // Send message to all connected clients for this job
+      clients[jobId]!.forEach((client) => client.write(data));
       console.log(`[SSE] job:${jobId} -> ${message}`);
     });
   }
 
-  // Handle client disconnect
+  // Cleanup when client disconnects
   req.on("close", async () => {
-    console.log(`[SSE] Connection closed for job ${jobId}`);
     clearInterval(keepAlive);
-    await subscriber.unsubscribe(`job:${jobId}:updates`);
-    activeJobs.delete(jobId);
+    clients[jobId]!.delete(res);
+
+    if (clients[jobId]!.size === 0) {
+      delete clients[jobId];
+      await subscriber.unsubscribe(`job:${jobId}:updates`);
+      console.log(`[SSE] Unsubscribed from job:${jobId}`);
+    }
   });
 });
 

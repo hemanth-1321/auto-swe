@@ -18,7 +18,7 @@ export const JobUpdates = ({ jobId }: JobUpdatesProps) => {
       `${BACKEND_URL}/publish/updates/${jobId}`
     );
 
-    eventSource.addEventListener("status", (event: any) => {
+    eventSource.addEventListener("status", (event) => {
       const data = JSON.parse(event.data);
       let text = "";
 

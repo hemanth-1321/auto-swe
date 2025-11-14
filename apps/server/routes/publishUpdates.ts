@@ -29,7 +29,6 @@ router.get("/updates/:jobId", async (req, res) => {
     stream.write(`event: ping\ndata: keepalive\n\n`);
   }, 15000);
 
-  // Subscribe to Redis only once
   if (clients[jobId].length === 1) {
     await subscriber.subscribe(`job:${jobId}:updates`, (msg) => {
       const payload = `data: ${msg}\n\n`;

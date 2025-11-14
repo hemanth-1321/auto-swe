@@ -1,49 +1,55 @@
 import express from "express";
+import { PassThrough } from "stream";
 import { subscriber } from "@repo/redis/client";
 
 const router = express.Router();
 
-// Track SSE clients per jobId
-const clients: Record<string, Set<express.Response>> = {};
+const clients: Record<string, PassThrough[]> = {};
 
-// SSE endpoint
 router.get("/updates/:jobId", async (req, res) => {
   const { jobId } = req.params;
 
-  // SSE headers
+  // SSE required headers
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
+  res.setHeader("Access-Control-Allow-Origin", "*");
 
-  // Add this response to clients
-  if (!clients[jobId]) clients[jobId] = new Set();
-  clients[jobId].add(res);
+  // Create streaming channel
+  const stream = new PassThrough();
 
-  // Keepalive ping every 10 seconds
+  // Pipe stream into response so TCP flushes automatically
+  stream.pipe(res);
+
+  if (!clients[jobId]) clients[jobId] = [];
+  clients[jobId].push(stream);
+
+  // Heartbeat to keep connection alive
   const keepAlive = setInterval(() => {
-    res.write("event: ping\n");
-    res.write("data: keepalive\n\n");
-  }, 10000);
+    stream.write(`event: ping\ndata: keepalive\n\n`);
+  }, 15000);
 
-  // Subscribe only once per jobId
-  if (clients[jobId].size === 1) {
-    await subscriber.subscribe(`job:${jobId}:updates`, (message) => {
-      const data = `data: ${message}\n\n`;
-      // Send message to all connected clients for this job
-      clients[jobId]!.forEach((client) => client.write(data));
-      console.log(`[SSE] job:${jobId} -> ${message}`);
+  // Subscribe to Redis only once
+  if (clients[jobId].length === 1) {
+    await subscriber.subscribe(`job:${jobId}:updates`, (msg) => {
+      const payload = `data: ${msg}\n\n`;
+      console.log(`[SSE] job:${jobId} => ${msg}`);
+
+      // Broadcast to all streams
+      clients[jobId]!.forEach((clientStream) => clientStream.write(payload));
     });
   }
 
-  // Cleanup when client disconnects
   req.on("close", async () => {
     clearInterval(keepAlive);
-    clients[jobId]!.delete(res);
 
-    if (clients[jobId]!.size === 0) {
-      delete clients[jobId];
+    // Remove dead stream
+    clients[jobId] = clients[jobId]!.filter((s) => s !== stream);
+    stream.end();
+
+    if (clients[jobId].length === 0) {
       await subscriber.unsubscribe(`job:${jobId}:updates`);
+      delete clients[jobId];
       console.log(`[SSE] Unsubscribed from job:${jobId}`);
     }
   });

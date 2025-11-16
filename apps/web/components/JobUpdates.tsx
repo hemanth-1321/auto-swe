@@ -1,5 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useEffect, useState, useRef } from "react";
+import { Terminal } from "lucide-react";
 import { BACKEND_URL } from "@/lib/constants";
 
 interface JobUpdatesProps {
@@ -7,58 +9,89 @@ interface JobUpdatesProps {
 }
 
 export const JobUpdates = ({ jobId }: JobUpdatesProps) => {
-  const [status, setStatus] = useState<string>("Waiting for job...");
+  const [messages, setMessages] = useState<string[]>([]);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!jobId) return;
 
-    setStatus("Loading job status...");
+    // Clear messages when jobId changes
+    setMessages([]);
 
     const eventSource = new EventSource(
       `${BACKEND_URL}/publish/updates/${jobId}`
     );
 
-    eventSource.addEventListener("status", (event) => {
-      const data = JSON.parse(event.data);
-      let text = "";
-
-      switch (data.status) {
-        case "waiting":
-        case "pending":
-          text = "Job is queued...";
-          break;
-        case "active":
-          text = "Job started running...";
-          break;
-        case "completed":
-          text = "Job completed successfully ✔";
-          break;
-        case "failed":
-          text = `Job failed ❌ - ${data.reason}`;
-          break;
-        case "not_found":
-          text = "Job not found";
-          break;
-        default:
-          text = data.status;
+    eventSource.onmessage = (event) => {
+      let message = "";
+      try {
+        const parsed = JSON.parse(event.data);
+        message = parsed.message || "";
+      } catch {
+        message = event.data;
       }
+      if (message) setMessages((prev) => [...prev, message]);
+    };
 
-      setStatus(text);
-    });
+    eventSource.onerror = (err) => {
+      console.error("SSE error:", err);
+      eventSource.close();
+    };
 
-    eventSource.onerror = () => eventSource.close();
-
-    return () => eventSource.close();
+    return () => {
+      eventSource.close();
+    };
   }, [jobId]);
+
+  // Scroll to bottom on new messages
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleClear = () => setMessages([]);
 
   return (
     <div className="mt-6">
-      <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-200">
-        Job Status
-      </h3>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <Terminal className="w-5 h-5 text-green-500" />
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
+            Live Job Updates
+          </h3>
+        </div>
+        <button
+          onClick={handleClear}
+          className="text-sm px-3 py-1 bg-gray-800 text-white rounded hover:bg-gray-700 transition"
+        >
+          Clear Terminal
+        </button>
+      </div>
 
-      <div className="bg-black text-green-400 font-mono text-sm rounded-lg p-4 h-28 flex items-center border border-green-500/40 shadow-inner">
-        <p className="whitespace-pre-wrap">{status}</p>
+      <div
+        className="
+          bg-black
+          text-green-400
+          font-mono
+          text-sm
+          rounded-lg
+          p-4
+          h-64
+          overflow-y-auto
+          border
+          border-green-500/40
+          shadow-inner
+        "
+      >
+        {messages.length === 0 ? (
+          <p className="text-green-700 animate-pulse">Waiting for updates...</p>
+        ) : (
+          messages.map((msg, i) => (
+            <div key={i} className="whitespace-pre-wrap">
+              <span className="text-green-500">$</span> {msg}
+            </div>
+          ))
+        )}
+        <div ref={bottomRef} />
       </div>
     </div>
   );

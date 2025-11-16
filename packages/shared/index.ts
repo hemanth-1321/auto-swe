@@ -37,7 +37,7 @@ export const get_repos = async (installationId: number) => {
 
     return repositories;
   } catch (error) {
-    console.log("error fetching repos");
+    console.log("error fetching repos", error);
   }
 };
 

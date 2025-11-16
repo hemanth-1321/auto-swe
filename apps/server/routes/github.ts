@@ -19,11 +19,12 @@ router.get("/repos", authMiddleware, async (req, res) => {
     const payload = {
       repository_full_names: repos?.repositories?.map((r) => r.full_name) ?? [],
     };
+    console.log(payload);
     res.status(200).json({
       payload,
     });
   } catch (error) {
-    console.log("error fetching repos");
+    console.log("error fetching repos", error);
     res.status(500).json({
       message: "error fetching repos",
     });

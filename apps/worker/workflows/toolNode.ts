@@ -55,12 +55,20 @@ export const queryRepo = async (
         message: `${repoUrl} is not indexed,indexing it please sit tight!.`,
       });
 
+      // Wait for full indexing
       await indexRepo(repoUrl, jobId);
       console.log(
         ` Repository "${normalizedRepo}" indexed successfully. Retrying query...`
       );
 
-      const retryResults = await vectorstore.similaritySearch(prompt, 20);
+      // -----------------------
+      // FIX: Recreate vectorstore to read fresh data
+      const freshVectorstore = await PGVectorStore.initialize(embeddings, {
+        pool,
+        tableName: "repo_vector",
+      });
+
+      const retryResults = await freshVectorstore.similaritySearch(prompt, 20);
       const retryFiltered = retryResults
         .filter((doc) => doc.metadata.repo?.endsWith(normalizedRepo))
         .slice(0, topK);

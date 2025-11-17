@@ -6,19 +6,21 @@ import { generateCommitMessage } from "../utils/commitMessage";
 import { Octokit } from "@octokit/rest";
 import { publishUpdate } from "@repo/redis/client";
 
-// CLEAN PATHS ONLY FOR FRONTEND DISPLAY
-const cleanPath = (path: string) => {
-  if (!path) return path;
-  return path
-    .replace(/^\/+/, "") // remove leading slashes
-    .replace(/^\.\//, ""); // remove ./
+const sanitizeFrontendPath = (value: string) => {
+  if (!value || typeof value !== "string") return value;
+
+  // Remove E2B base sandbox prefix
+  return value.replace(/\/home\/user\/project\/?/g, "");
 };
 
-// WRAPS publishUpdate TO ALWAYS CLEAN PATHS IN MESSAGES
 const send = async (jobId: string, payload: any) => {
-  const msg = payload.message || "";
-  const cleaned = msg.replace(/\/home\/user\/project\//g, ""); // remove sandbox prefix
-  await publishUpdate(jobId, { ...payload, message: cleaned });
+  const p = { ...payload };
+
+  if (p.message) p.message = sanitizeFrontendPath(p.message);
+  if (p.file) p.file = sanitizeFrontendPath(p.file);
+  if (p.path) p.path = sanitizeFrontendPath(p.path);
+
+  await publishUpdate(jobId, p);
 };
 
 export const processRepo = async (
@@ -34,6 +36,7 @@ export const processRepo = async (
     });
 
     const baseDir = "/home/user/project";
+
     const sandbox = await Sandbox.create({
       apiKey: process.env.E2B_API_KEY,
       timeoutMs: 30 * 60 * 1000,
@@ -41,7 +44,6 @@ export const processRepo = async (
 
     const repoName = repoUrl.split("/").pop()!.replace(".git", "");
     const cloneDir = `${baseDir}/${repoName}`;
-    const prettyClone = cleanPath(cloneDir);
 
     await send(jobId, {
       stage: "init",
@@ -53,7 +55,7 @@ export const processRepo = async (
 
     await send(jobId, {
       stage: "clone",
-      message: `Cloning repository into ${prettyClone}...`,
+      message: `Cloning repository into ${sanitizeFrontendPath(cloneDir)}...`,
     });
 
     const cloneResult = await sandbox.commands.run(
@@ -107,21 +109,20 @@ export const processRepo = async (
         stage: "error",
         message: `Analysis failed: ${graphResult.error}`,
       });
-      console.error("Graph execution error:", graphResult.error);
       return { sandbox, cloneDir };
     }
 
-    const isValid = Boolean(graphResult.validationSuccess);
-
+    // ----------------------------------------------
+    // Validation Result
+    // ----------------------------------------------
     await send(jobId, {
       stage: "validation",
-      message: isValid
+      message: graphResult.validationSuccess
         ? "Code validation succeeded."
         : "Code validation failed.",
     });
-
     const status = await sandbox.commands.run(
-      `cd ${cloneDir} && git status --porcelain`
+      `cd "${cloneDir}" && git status --porcelain`
     );
 
     if (!status.stdout.trim()) {
@@ -143,9 +144,9 @@ export const processRepo = async (
     await sandbox.commands.run(`git config --global user.name "AutoSWE Bot"`);
 
     const commitMessage = await generateCommitMessage(userPrompt);
-    await sandbox.commands.run(`cd ${cloneDir} && git add -A`);
+    await sandbox.commands.run(`cd "${cloneDir}" && git add -A`);
     await sandbox.commands.run(
-      `cd ${cloneDir} && git commit -m "${commitMessage}"`
+      `cd "${cloneDir}" && git commit -m "${commitMessage}"`
     );
 
     await send(jobId, {
@@ -162,11 +163,11 @@ export const processRepo = async (
     const branchName = `autoswe-edits-${Date.now()}`;
 
     await sandbox.commands.run(
-      `cd ${cloneDir} && git checkout -b ${branchName}`
+      `cd "${cloneDir}" && git checkout -b ${branchName}`
     );
 
     const pushResult = await sandbox.commands.run(
-      `cd ${cloneDir} && git push ${pushUrl} HEAD:${branchName}`
+      `cd "${cloneDir}" && git push ${pushUrl} HEAD:${branchName}`
     );
 
     if (pushResult.exitCode !== 0) {
@@ -213,7 +214,7 @@ export const processRepo = async (
     console.error("processRepo failed:", err);
     await send(jobId, {
       stage: "error",
-      message: err.message || "Unknown error occurred during processing.",
+      message: err.message || "Unknown error occurred.",
     });
   } finally {
     await send(jobId, {

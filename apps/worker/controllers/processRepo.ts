@@ -6,6 +6,21 @@ import { generateCommitMessage } from "../utils/commitMessage";
 import { Octokit } from "@octokit/rest";
 import { publishUpdate } from "@repo/redis/client";
 
+// CLEAN PATHS ONLY FOR FRONTEND DISPLAY
+const cleanPath = (path: string) => {
+  if (!path) return path;
+  return path
+    .replace(/^\/+/, "") // remove leading slashes
+    .replace(/^\.\//, ""); // remove ./
+};
+
+// WRAPS publishUpdate TO ALWAYS CLEAN PATHS IN MESSAGES
+const send = async (jobId: string, payload: any) => {
+  const msg = payload.message || "";
+  const cleaned = msg.replace(/\/home\/user\/project\//g, ""); // remove sandbox prefix
+  await publishUpdate(jobId, { ...payload, message: cleaned });
+};
+
 export const processRepo = async (
   repoUrl: string,
   userPrompt: string,
@@ -13,8 +28,7 @@ export const processRepo = async (
   jobId: string
 ) => {
   try {
-    console.log("Starting repository processing...");
-    await publishUpdate(jobId, {
+    await send(jobId, {
       stage: "start",
       message: "Starting repository processing...",
     });
@@ -27,32 +41,35 @@ export const processRepo = async (
 
     const repoName = repoUrl.split("/").pop()!.replace(".git", "");
     const cloneDir = `${baseDir}/${repoName}`;
+    const prettyClone = cleanPath(cloneDir);
 
-    await publishUpdate(jobId, {
+    await send(jobId, {
       stage: "init",
-      message: "Preparing sandbox environment...",
+      message: `Preparing sandbox environment...`,
     });
+
     await sandbox.commands.run(`rm -rf ${baseDir}`);
     await sandbox.commands.run(`mkdir -p ${baseDir}`);
 
-    await publishUpdate(jobId, {
+    await send(jobId, {
       stage: "clone",
-      message: "Cloning repository...",
+      message: `Cloning repository into ${prettyClone}...`,
     });
+
     const cloneResult = await sandbox.commands.run(
       `git clone "${repoUrl}" "${cloneDir}"`,
       { timeoutMs: 30 * 60 * 1000 }
     );
 
     if (cloneResult.exitCode !== 0) {
-      await publishUpdate(jobId, {
+      await send(jobId, {
         stage: "error",
         message: `Failed to clone repository: ${cloneResult.stderr}`,
       });
       throw new Error(`Failed to clone repo: ${cloneResult.stderr}`);
     }
 
-    await publishUpdate(jobId, {
+    await send(jobId, {
       stage: "analysis",
       message: "Analyzing repository and planning changes...",
     });
@@ -79,13 +96,14 @@ export const processRepo = async (
     };
 
     const graphResult = await codeEditorGraph.invoke(initialState);
-    await publishUpdate(jobId, {
+
+    await send(jobId, {
       stage: "analysis_done",
       message: "Analysis and code generation completed.",
     });
 
     if (graphResult.error) {
-      await publishUpdate(jobId, {
+      await send(jobId, {
         stage: "error",
         message: `Analysis failed: ${graphResult.error}`,
       });
@@ -94,7 +112,8 @@ export const processRepo = async (
     }
 
     const isValid = Boolean(graphResult.validationSuccess);
-    await publishUpdate(jobId, {
+
+    await send(jobId, {
       stage: "validation",
       message: isValid
         ? "Code validation succeeded."
@@ -106,17 +125,18 @@ export const processRepo = async (
     );
 
     if (!status.stdout.trim()) {
-      await publishUpdate(jobId, {
+      await send(jobId, {
         stage: "no_changes",
         message: "No changes detected, skipping commit.",
       });
       return;
     }
 
-    await publishUpdate(jobId, {
+    await send(jobId, {
       stage: "commit",
       message: "Committing AI-suggested changes...",
     });
+
     await sandbox.commands.run(
       `git config --global user.email "autoswe-bot@users.noreply.github.com"`
     );
@@ -128,8 +148,7 @@ export const processRepo = async (
       `cd ${cloneDir} && git commit -m "${commitMessage}"`
     );
 
-    // Push changes to GitHub
-    await publishUpdate(jobId, {
+    await send(jobId, {
       stage: "push",
       message: "Pushing committed changes to GitHub...",
     });
@@ -139,25 +158,26 @@ export const processRepo = async (
       "https://",
       `https://x-access-token:${token}@`
     );
+
     const branchName = `autoswe-edits-${Date.now()}`;
 
     await sandbox.commands.run(
       `cd ${cloneDir} && git checkout -b ${branchName}`
     );
+
     const pushResult = await sandbox.commands.run(
       `cd ${cloneDir} && git push ${pushUrl} HEAD:${branchName}`
     );
 
     if (pushResult.exitCode !== 0) {
-      await publishUpdate(jobId, {
+      await send(jobId, {
         stage: "error",
         message: `Failed to push changes: ${pushResult.stderr}`,
       });
-      console.error("Push failed:", pushResult.stderr);
       return;
     }
 
-    await publishUpdate(jobId, {
+    await send(jobId, {
       stage: "pr",
       message: "Creating pull request on GitHub...",
     });
@@ -165,15 +185,17 @@ export const processRepo = async (
     const octokit = new Octokit({ auth: token });
     const match = repoUrl.match(/github\.com\/([^/]+)\/([^/.]+)/);
 
-    if (!match || !match[1] || !match[2]) {
-      await publishUpdate(jobId, {
+    if (!match) {
+      await send(jobId, {
         stage: "error",
         message: "Invalid GitHub repository URL.",
       });
       throw new Error(`Invalid GitHub repo URL: ${repoUrl}`);
     }
 
-    const [_, owner, repo] = match;
+    const owner = match[1]!;
+    const repo = match[2]!;
+
     const { data: pr } = await octokit.pulls.create({
       owner,
       repo,
@@ -183,23 +205,20 @@ export const processRepo = async (
       body: `This pull request contains AI-suggested changes:\n\n${userPrompt}`,
     });
 
-    await publishUpdate(jobId, {
+    await send(jobId, {
       stage: "complete",
-      message: `Pull request created successfully ${pr.html_url}.`,
+      message: `Pull request created successfully: ${pr.html_url}`,
     });
-
-    console.log("Pull request created:", pr.html_url);
   } catch (err: any) {
     console.error("processRepo failed:", err);
-    await publishUpdate(jobId, {
+    await send(jobId, {
       stage: "error",
       message: err.message || "Unknown error occurred during processing.",
     });
   } finally {
-    await publishUpdate(jobId, {
+    await send(jobId, {
       stage: "end",
       message: "Repository processing job finished.",
     });
-    return;
   }
 };

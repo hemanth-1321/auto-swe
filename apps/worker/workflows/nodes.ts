@@ -3,6 +3,9 @@ import { GraphState } from "../utils/state";
 import { groqModel } from "../utils/llm";
 import { publishUpdate } from "@repo/redis/client";
 
+const cleanPath = (p: string) =>
+  p.replace(/^.*project[\/\\]/, "").replace(/^\.\//, "");
+
 export const searchFiles = async (state: GraphState) => {
   const { prompt, repoUrl, jobId } = state;
   if (!repoUrl) throw new Error("repoUrl missing in GraphState");
@@ -51,16 +54,17 @@ export const readFiles = async (state: GraphState) => {
   for (const filePath of filePaths.slice(0, 10)) {
     await publishUpdate(jobId, {
       stage: "reading",
-      message: `Reading file: ${filePath}`,
+      message: `Reading file: ${cleanPath(filePath)}`,
     });
 
     try {
       const content = await sandbox.files.read(filePath);
       fileContents[filePath] = content;
     } catch (err) {
+      console.error(err);
       await publishUpdate(jobId, {
         stage: "readError",
-        message: `Failed to read file: ${filePath}`,
+        message: `Failed to read file: ${cleanPath(filePath)}`,
       });
     }
   }
@@ -138,7 +142,6 @@ export const analyzeFilesAndPlan = async (
     fileCount: existingFiles.length,
   };
 
-  // CASE 1 — No files: create new
   if (!fileContents || Object.keys(fileContents).length === 0) {
     await publishUpdate(jobId, {
       stage: "planning",
@@ -217,14 +220,15 @@ Return ONLY JSON like:
     }
   }
 
-  // CASE 2 — Edit existing files
   await publishUpdate(jobId, {
     stage: "planning",
     message: "Analyzing existing files to plan edits...",
   });
 
   const contextText = Object.entries(fileContents)
-    .map(([path, content]) => `File: ${path}\n${content.slice(0, 1500)}`)
+    .map(
+      ([path, content]) => `File: ${cleanPath(path)}\n${content.slice(0, 1500)}`
+    )
     .join("\n\n---\n\n");
 
   const editPrompt = `
@@ -301,12 +305,13 @@ export const applyChanges = async (
   try {
     for (const change of changePlan) {
       const normalizedFile = change.file.replace(/^\.\//, "");
+      const displayFile = cleanPath(normalizedFile);
       const targetPath = `${repoPath}/${normalizedFile}`;
 
       await publishUpdate(jobId, {
         stage: "processing",
-        message: `${change.action === "create" ? "🆕 Creating" : change.action === "edit" ? "✏️ Editing" : "🗑️ Deleting"} ${normalizedFile}`,
-        file: normalizedFile,
+        message: `${change.action === "create" ? "🆕 Creating" : change.action === "edit" ? "✏️ Editing" : "🗑️ Deleting"} ${displayFile}`,
+        file: displayFile,
         action: change.action,
       });
 
@@ -331,7 +336,7 @@ Requirements:
           .trim()
           .replace(/```[a-z]*\n?|```\n?/g, "");
         await sandbox.files.write(targetPath, newContent);
-        filesToModify.push({ filePath: normalizedFile, newContent });
+        filesToModify.push({ filePath: displayFile, newContent });
       } else if (change.action === "edit") {
         let existingContent =
           fileContents?.[change.file] || fileContents?.[normalizedFile] || "";
@@ -342,20 +347,20 @@ Requirements:
           } catch {
             await publishUpdate(jobId, {
               stage: "warning",
-              message: `Could not read ${normalizedFile}, skipping.`,
+              message: `Could not read ${displayFile}, skipping.`,
             });
             continue;
           }
         }
 
         const completion = await groqModel.invoke(`
-You are editing this file: ${normalizedFile}
-User request: ${prompt}
-Goal: ${change.goal}
-Current content:
-${existingContent}
-Generate the full modified content that fulfills the goal.
-No explanations, no markdown.
+  You are editing this file: ${normalizedFile}
+  User request: ${prompt}
+  Goal: ${change.goal}
+  Current content:
+  ${existingContent}
+  Generate the full modified content that fulfills the goal.
+  No explanations, no markdown.
         `);
 
         const newContent = completion.content
@@ -365,7 +370,7 @@ No explanations, no markdown.
 
         if (newContent !== existingContent && newContent.length > 10) {
           await sandbox.files.write(targetPath, newContent);
-          filesToModify.push({ filePath: normalizedFile, newContent });
+          filesToModify.push({ filePath: displayFile, newContent });
         }
       } else if (change.action === "delete") {
         try {
@@ -373,7 +378,7 @@ No explanations, no markdown.
         } catch {
           await publishUpdate(jobId, {
             stage: "warning",
-            message: `Failed to delete ${normalizedFile}`,
+            message: `Failed to delete ${displayFile}`,
           });
         }
       }
@@ -432,7 +437,6 @@ export const validateChanges = async (
     let cmd = "";
     let success = true;
 
-    // Detect validator command based on stack
     switch (true) {
       case stack?.includes("React") ||
         stack?.includes("TypeScript") ||

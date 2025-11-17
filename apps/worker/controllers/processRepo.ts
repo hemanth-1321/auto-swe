@@ -6,22 +6,45 @@ import { generateCommitMessage } from "../utils/commitMessage";
 import { Octokit } from "@octokit/rest";
 import { publishUpdate } from "@repo/redis/client";
 
-const sanitizeFrontendPath = (value: string) => {
+const SANDBOX_PATH_REGEX = /\/home\/user\/project(?:[^ \n]*)?/g;
+
+const sanitizeFrontendText = (value: any): any => {
   if (!value || typeof value !== "string") return value;
 
-  // Remove E2B base sandbox prefix
-  return value.replace(/\/home\/user\/project\/?/g, "");
+  return value
+    .replace(SANDBOX_PATH_REGEX, (match) => {
+      return match.replace("/home/user/project", "").replace(/^\/+/, "");
+    })
+    .replace(/\/+/g, "/")
+    .trim();
+};
+
+const deepSanitize = (obj: any): any => {
+  if (!obj) return obj;
+
+  if (typeof obj === "string") return sanitizeFrontendText(obj);
+
+  if (Array.isArray(obj)) return obj.map((v) => deepSanitize(v));
+
+  if (typeof obj === "object") {
+    const sanitizedObj: any = {};
+    for (const key of Object.keys(obj)) {
+      sanitizedObj[key] = deepSanitize(obj[key]);
+    }
+    return sanitizedObj;
+  }
+
+  return obj;
 };
 
 const send = async (jobId: string, payload: any) => {
-  const p = { ...payload };
-
-  if (p.message) p.message = sanitizeFrontendPath(p.message);
-  if (p.file) p.file = sanitizeFrontendPath(p.file);
-  if (p.path) p.path = sanitizeFrontendPath(p.path);
-
-  await publishUpdate(jobId, p);
+  const sanitized = deepSanitize(payload);
+  await publishUpdate(jobId, sanitized);
 };
+
+/* ---------------------------------------------------------
+   MAIN LOGIC (UNCHANGED)
+--------------------------------------------------------- */
 
 export const processRepo = async (
   repoUrl: string,
@@ -47,7 +70,7 @@ export const processRepo = async (
 
     await send(jobId, {
       stage: "init",
-      message: `Preparing sandbox environment...`,
+      message: "Preparing sandbox environment...",
     });
 
     await sandbox.commands.run(`rm -rf ${baseDir}`);
@@ -55,7 +78,7 @@ export const processRepo = async (
 
     await send(jobId, {
       stage: "clone",
-      message: `Cloning repository into ${sanitizeFrontendPath(cloneDir)}...`,
+      message: `Cloning repository into ${cloneDir}...`,
     });
 
     const cloneResult = await sandbox.commands.run(
@@ -112,15 +135,16 @@ export const processRepo = async (
       return { sandbox, cloneDir };
     }
 
-    // ----------------------------------------------
-    // Validation Result
-    // ----------------------------------------------
+    // ------------------------------
+    // Validation
+    // ------------------------------
     await send(jobId, {
       stage: "validation",
       message: graphResult.validationSuccess
         ? "Code validation succeeded."
         : "Code validation failed.",
     });
+
     const status = await sandbox.commands.run(
       `cd "${cloneDir}" && git status --porcelain`
     );
@@ -144,6 +168,7 @@ export const processRepo = async (
     await sandbox.commands.run(`git config --global user.name "AutoSWE Bot"`);
 
     const commitMessage = await generateCommitMessage(userPrompt);
+
     await sandbox.commands.run(`cd "${cloneDir}" && git add -A`);
     await sandbox.commands.run(
       `cd "${cloneDir}" && git commit -m "${commitMessage}"`
@@ -155,6 +180,7 @@ export const processRepo = async (
     });
 
     const token = await getInstallationAccessToken(installationId);
+
     const pushUrl = repoUrl.replace(
       "https://",
       `https://x-access-token:${token}@`

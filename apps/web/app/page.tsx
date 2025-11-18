@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import HowItWorks from "@/components/HowItWorks";
 
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
@@ -114,12 +115,23 @@ export default function Home() {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.8, delay: 0.2 }}
               >
-                {/* Web Interface Mockup */}
-
-                <div></div>
+                <div className="w-full flex justify-center">
+                  <video
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    src="https://res.cloudinary.com/duskmp26u/video/upload/v1763443078/Screencast_from_2025-11-17_23-36-32_mtevwx.mp4"
+                    className=" shadow-lg w-full max-w-3xl border border-neutral-800"
+                  />
+                </div>
               </motion.div>
             </div>
           </div>
+        </section>
+
+        <section>
+          <HowItWorks />
         </section>
       </div>
     );

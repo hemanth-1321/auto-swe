@@ -94,17 +94,11 @@ export default function Home() {
                 >
                   <Button
                     onClick={handleInstall}
-                    className="bg-(--accent-purple) hover:bg-(--accent-purple)/90 text-white rounded-lg px-8 py-6 text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all"
+                    className="bg-(--accent-purple) hover:bg-(--accent-purple)/90 text-black  dark:text-white rounded-lg px-8 py-6 text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all cursor-pointer"
                   >
                     <Github className="mr-2 h-5 w-5" />
                     Install GitHub App
                     <ArrowRight className="ml-2 w-5 h-5" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="border-2 rounded-lg px-8 py-6 text-lg hover:bg-muted hover:scale-105 transition-all"
-                  >
-                    View Docs
                   </Button>
                 </motion.div>
               </motion.div>

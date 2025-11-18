@@ -115,7 +115,7 @@ export function AppBar() {
               <Button
                 onClick={handleInstall}
                 size="sm"
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 cursor-pointer"
               >
                 <Github className="w-4 h-4" />
                 Sign in

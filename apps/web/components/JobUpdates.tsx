@@ -2,10 +2,10 @@
 
 import { useEffect, useState, useRef } from "react";
 import { BACKEND_URL } from "@/lib/constants";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { motion, AnimatePresence } from "motion/react";
-import { Button } from "./ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { Button } from "./ui/button";
 
 interface JobUpdatesProps {
   jobId: string | null;
@@ -19,7 +19,6 @@ type LogEntry = {
 
 const detectStage = (msg: string): string => {
   const lower = msg.toLowerCase();
-
   if (lower.includes("error")) return "error";
   if (lower.includes("clone")) return "clone";
   if (lower.includes("index") || lower.includes("search")) return "index";
@@ -65,42 +64,48 @@ export function JobUpdates({ jobId }: JobUpdatesProps) {
           ]);
         }
       } catch {
-        const msg = event.data;
-        if (msg) {
-          const stage = detectStage(msg);
+        if (event.data) {
+          const stage = detectStage(event.data);
           setLogs((prev) => [
             ...prev,
-            { id: prev.length + 1, message: msg, stage },
+            { id: prev.length + 1, message: event.data, stage },
           ]);
         }
       }
     };
 
-    eventSource.onerror = () => eventSource.close();
+    eventSource.onerror = (err) => {
+      console.error("SSE error:", err);
+      eventSource.close();
+    };
 
-    return () => eventSource.close();
+    return () => {
+      eventSource.close();
+    };
   }, [jobId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
+  const handleClear = () => setLogs([]);
+
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* HEADER */}
-      <div className="flex items-center justify-between mb-4 sticky top-0 z-10 bg-background/90 backdrop-blur-sm py-2">
-        <h3 className="text-lg font-medium">Live Job Updates</h3>
+    <div className="mt-6 border p-4 bg-background shadow-md">
+      <div className="flex items-center justify-between mb-3 sticky top-0 z-10 bg-background/80 backdrop-blur-xl py-2">
+        <div className="flex items-center gap-2">
+          <h3 className="text-lg font-medium">Live Job Updates</h3>
+        </div>
 
         <Button
-          onClick={() => setLogs([])}
-          className="text-sm px-3 py-1.5 border cursor-pointer"
+          onClick={handleClear}
+          className="text-sm px-3 py-1.5 rounded-md border transition cursor-pointer"
         >
           Clear
         </Button>
       </div>
 
-      {/* SCROLLABLE LOG AREA */}
-      <ScrollArea className="flex-1 border rounded-md p-4 font-mono text-sm overflow-y-auto">
+      <ScrollArea className="h-72 border p-4 font-mono text-sm">
         {logs.length === 0 ? (
           <p className="opacity-60">Waiting for updates...</p>
         ) : (
@@ -109,13 +114,13 @@ export function JobUpdates({ jobId }: JobUpdatesProps) {
               {logs.map((log) => (
                 <motion.div
                   key={log.id}
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
+                  exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.15 }}
                   className={cn(
                     "px-3 py-2 rounded-md border shadow-sm",
-                    stageStyles[log.stage]
+                    stageStyles[log.stage] || stageStyles.info
                   )}
                 >
                   {log.message}

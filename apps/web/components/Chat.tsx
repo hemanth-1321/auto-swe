@@ -18,13 +18,6 @@ export const Chat = () => {
 
   const APP_SLUG = "auto-swe";
 
-  const handleRepoSelect = (repo: string) => setSelectedRepo(repo);
-
-  const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setPrompt(e.target.value);
-    if (jobId) setJobId(null);
-  };
-
   const handleProcess = async () => {
     if (!selectedRepo || !prompt.trim()) {
       toast.error("Please select a repository and enter a prompt");
@@ -53,55 +46,55 @@ export const Chat = () => {
   return (
     <div className="w-full max-w-6xl mx-auto mt-20">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* LEFT (Chat) */}
-        <div className="flex flex-col">
-          <Card className="p-6 space-y-4 shadow-md flex-1 h-[580px] overflow-hidden flex flex-col">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4 mb-4">
-              <div className="flex-1">
-                <Repos onSelect={handleRepoSelect} />
-              </div>
-
-              <Button
-                onClick={() =>
-                  window.open(
-                    `https://github.com/apps/${APP_SLUG}/installations/new`,
-                    "_blank"
-                  )
-                }
-                className="mt-4 sm:mt-0 flex gap-2 cursor-pointer"
-              >
-                <Plus className="w-5 h-5" />
-                Add Repositories
-              </Button>
+        {/* LEFT PANEL */}
+        <Card className="p-6 shadow-md h-[680px] flex flex-col">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4">
+            <div className="flex-1">
+              <Repos onSelect={(repo) => setSelectedRepo(repo)} />
             </div>
 
-            <Textarea
-              value={prompt}
-              onChange={handlePromptChange}
-              placeholder={
-                selectedRepo
-                  ? `Chat about ${selectedRepo}...`
-                  : "Select a repository first..."
-              }
-              disabled={!selectedRepo || isProcessing}
-              className="min-h-[140px] resize-none"
-            />
-
             <Button
-              disabled={!selectedRepo || !prompt.trim() || isProcessing}
-              onClick={handleProcess}
-              className="w-full h-11 text-base font-medium cursor-pointer"
+              onClick={() =>
+                window.open(
+                  `https://github.com/apps/${APP_SLUG}/installations/new`,
+                  "_blank"
+                )
+              }
+              className="mt-4 sm:mt-0 flex gap-2 cursor-pointer"
             >
-              {isProcessing ? "Processing..." : "Send"}
+              <Plus className="w-5 h-5" />
+              Add Repositories
             </Button>
-          </Card>
-        </div>
+          </div>
 
-        <div className="flex flex-col">
-          <Card className="p-2 shadow-md flex-1 h-[680px] overflow-hidden flex flex-col">
-            <JobUpdates jobId={jobId} />
-          </Card>
-        </div>
+          <Textarea
+            value={prompt}
+            onChange={(e) => {
+              setPrompt(e.target.value);
+              if (jobId) setJobId(null);
+            }}
+            placeholder={
+              selectedRepo
+                ? `Chat about ${selectedRepo}...`
+                : "Select a repository first..."
+            }
+            disabled={!selectedRepo || isProcessing}
+            className="mt-4 min-h-[150px] resize-none"
+          />
+
+          <Button
+            disabled={!selectedRepo || !prompt.trim() || isProcessing}
+            onClick={handleProcess}
+            className="mt-4 w-full h-11 text-base font-medium cursor-pointer"
+          >
+            {isProcessing ? "Processing..." : "Send"}
+          </Button>
+        </Card>
+
+        {/* RIGHT PANEL */}
+        <Card className="p-4 shadow-md h-[680px] flex flex-col overflow-hidden">
+          <JobUpdates jobId={jobId} />
+        </Card>
       </div>
     </div>
   );

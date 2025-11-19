@@ -2,13 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Github,
-  ArrowRight,
-  Sparkles,
-  GitPullRequest,
-  CheckCircle2,
-} from "lucide-react";
+import { Github, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import HowItWorks from "@/components/HowItWorks";
@@ -46,7 +40,6 @@ export default function Home() {
 
   if (!mounted) return null;
 
-  // Smooth message before redirect
   if (redirecting) {
     return (
       <div className="flex justify-center items-center h-screen text-lg">

@@ -18,6 +18,13 @@ export const Chat = () => {
 
   const APP_SLUG = "auto-swe";
 
+  const handleRepoSelect = (repo: string) => setSelectedRepo(repo);
+
+  const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setPrompt(e.target.value);
+    if (jobId) setJobId(null);
+  };
+
   const handleProcess = async () => {
     if (!selectedRepo || !prompt.trim()) {
       toast.error("Please select a repository and enter a prompt");
@@ -44,14 +51,14 @@ export const Chat = () => {
   };
 
   return (
-    <div className="w-full max-w-6xl mx-auto">
+    <div className="w-full max-w-6xl mx-auto mt-20">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* LEFT SIDE */}
+        {/* LEFT (Chat) */}
         <div className="flex flex-col">
-          <Card className="p-6 space-y-4 shadow-md h-[580px] flex flex-col overflow-hidden">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4">
+          <Card className="p-6 space-y-4 shadow-md flex-1 h-[580px] overflow-hidden flex flex-col">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4 mb-4">
               <div className="flex-1">
-                <Repos onSelect={setSelectedRepo} />
+                <Repos onSelect={handleRepoSelect} />
               </div>
 
               <Button
@@ -70,16 +77,13 @@ export const Chat = () => {
 
             <Textarea
               value={prompt}
-              onChange={(e) => {
-                setPrompt(e.target.value);
-                if (jobId) setJobId(null);
-              }}
-              disabled={!selectedRepo || isProcessing}
+              onChange={handlePromptChange}
               placeholder={
                 selectedRepo
                   ? `Chat about ${selectedRepo}...`
                   : "Select a repository first..."
               }
+              disabled={!selectedRepo || isProcessing}
               className="min-h-[140px] resize-none"
             />
 
@@ -93,9 +97,8 @@ export const Chat = () => {
           </Card>
         </div>
 
-        {/* RIGHT SIDE */}
         <div className="flex flex-col">
-          <Card className="p-2 shadow-md h-[680px] flex flex-col overflow-hidden">
+          <Card className="p-2 shadow-md flex-1 h-[680px] overflow-hidden flex flex-col">
             <JobUpdates jobId={jobId} />
           </Card>
         </div>

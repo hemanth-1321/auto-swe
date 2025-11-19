@@ -1,7 +1,7 @@
 services:
 
   redis:
-    image: redis:8.4-rc1-alpine3.22
+    image: redis:latest
     container_name: auto-swe-redis
     ports:
       - "6379:6379"

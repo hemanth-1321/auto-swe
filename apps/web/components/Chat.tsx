@@ -51,9 +51,14 @@ export const Chat = () => {
 
   return (
     <div className="w-full max-w-6xl mx-auto p-4 md:p-8 space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[550px]">
-        {/* LEFT PANEL: Configuration */}
-        <Card className="flex flex-col p-1 shadow-md h-full border-border/60 bg-card/50 backdrop-blur-sm overflow-hidden">
+      {/* UPDATED LAYOUT:
+        h-auto for mobile (allows stacking), lg:h-[550px] for desktop (fixed height).
+      */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-auto lg:h-[550px]">
+        {/* LEFT PANEL: Configuration 
+          h-auto for mobile (natural height), lg:h-full for desktop (fill grid).
+        */}
+        <Card className="flex flex-col p-1 shadow-md h-auto lg:h-full border-border/60 bg-card/50 backdrop-blur-sm overflow-hidden">
           <div className="p-5 flex-1 flex flex-col gap-6 min-h-0">
             {/* Repo Select Section */}
             <div className="space-y-3 flex-none">
@@ -83,7 +88,7 @@ export const Chat = () => {
             </div>
 
             {/* Prompt Input Section */}
-            <div className="space-y-3 flex flex-col flex-1 min-h-0">
+            <div className="space-y-3 flex flex-col flex-1 min-h-[200px] lg:min-h-0">
               <div className="flex items-center gap-2 text-sm font-semibold text-foreground/80">
                 <Sparkles className="w-4 h-4 text-primary" />
                 Task Instructions
@@ -123,8 +128,10 @@ export const Chat = () => {
           </div>
         </Card>
 
-        {/* RIGHT PANEL: Job Output */}
-        <Card className="flex flex-col h-full shadow-md border-border/60 overflow-hidden relative group">
+        {/* RIGHT PANEL: Job Output 
+           h-[500px] for mobile (gives terminal enough space to scroll), lg:h-full for desktop.
+        */}
+        <Card className="flex flex-col h-[500px] lg:h-full shadow-md border-border/60 overflow-hidden relative group">
           <div className="flex-1 overflow-hidden relative p-0">
             {!jobId && (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground/30 gap-2 select-none">

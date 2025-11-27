@@ -1,8 +1,7 @@
 import IORedis from "ioredis";
 import { Queue } from "bullmq";
 
-export const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-
+export const redisUrl = process.env.REDIS_URL!;
 export const connection = new IORedis(redisUrl, {
   maxRetriesPerRequest: null,
   enableReadyCheck: true,
@@ -13,7 +12,6 @@ connection.on("connect", () => console.log(" Redis connected"));
 connection.on("reconnecting", () => console.log(" Redis reconnecting…"));
 connection.on("error", (err) => console.error(" Redis Error:", err.message));
 
-// ---------- Publisher / Subscriber ----------
 export const publisher = new IORedis(redisUrl);
 export const subscriber = new IORedis(redisUrl);
 

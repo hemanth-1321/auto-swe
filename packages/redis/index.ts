@@ -21,6 +21,7 @@ subscriber.on("error", (err) => console.error("Subscriber error:", err));
 export const publishUpdate = async (jobId: string, data: any) => {
   try {
     await publisher.publish(`job:${jobId}:updates`, JSON.stringify(data));
+    console.log(`job:${jobId}:updates ${JSON.stringify(data)}`)
   } catch (err) {
     console.error("Failed to publish update:", err);
   }

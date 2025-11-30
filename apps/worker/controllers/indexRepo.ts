@@ -267,8 +267,6 @@ export const indexRepo = async (repourl: string, jobId: string) => {
   }
 };
 
-// -----------------------
-// Extract metadata
 function extractMeta(path: string, content: string) {
   const functionRegex =
     /\b(?:async\s+)?(?:function|def|func)\s+([A-Za-z_]\w*)|\b([A-Za-z_]\w*)\s*=\s*(?:async\s*)?\(.*?\)\s*=>|\b([A-Za-z_]\w*)\s*\([^)]*\)\s*(?:{|\:)/g;

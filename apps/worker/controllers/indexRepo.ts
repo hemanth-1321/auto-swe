@@ -2,7 +2,6 @@ import { Sandbox } from "@e2b/code-interpreter";
 import { Document } from "@langchain/core/documents";
 import { HuggingFaceInferenceEmbeddings } from "@langchain/community/embeddings/hf";
 import { PGVectorStore } from "@langchain/community/vectorstores/pgvector";
-import { encode } from "@byjohann/toon";
 import "dotenv/config";
 import { pool } from "../utils/vectordb";
 import { publishUpdate } from "@repo/redis/client";
@@ -68,38 +67,39 @@ export const indexRepo = async (repourl: string, jobId: string) => {
     // Determine if we can do incremental indexing
     let doIncremental = false;
 
-    if (previousCommit && previousCommit.trim() !== "") {
+    if (!previousCommit) {
+      // No previous index exists - do full indexing
+      doIncremental = false;
+      console.log("No previous index found. Performing full indexing.");
+    } else if (latestCommit === previousCommit) {
+      // Repo is up to date
+      await publishUpdate(jobId, {
+        stage: "complete",
+        message: "Repository up to date. Skipping indexing.",
+      });
+      console.log("Repo already up to date.");
+      return;
+    } else {
+      // Check if we can do incremental indexing
       try {
         const checkCommit = await sandbox.commands.run(
           `cd ${cloneDir} && git cat-file -t ${previousCommit}`
         );
         if (checkCommit.exitCode === 0) {
           doIncremental = true;
+          console.log("Performing incremental indexing.");
         } else {
           console.warn(
             `Previous commit "${previousCommit}" invalid. Falling back to full indexing.`
           );
-          previousCommit = null;
+          doIncremental = false;
         }
       } catch (err) {
         console.warn(
           `Error checking previous commit "${previousCommit}". Performing full indexing.`
         );
-        previousCommit = null;
+        doIncremental = false;
       }
-    }
-
-    if (!previousCommit || latestCommit === previousCommit) {
-      // full indexing
-      if (latestCommit === previousCommit) {
-        await publishUpdate(jobId, {
-          stage: "complete",
-          message: "Repository up to date. Skipping indexing.",
-        });
-        console.log("Repo already up to date.");
-        return;
-      }
-      doIncremental = false;
     }
 
     // -----------------------
@@ -220,9 +220,6 @@ export const indexRepo = async (repourl: string, jobId: string) => {
       });
       await vectorstore.addDocuments(docs);
     }
-
-    const encoded = encode(summaries);
-    // fs.writeFileSync(`./docs_summary_${repoName}.toon`, encoded);
 
     await pool.query(
       `INSERT INTO repo_index_state (repo_name, last_commit, last_indexed_at, total_files)
